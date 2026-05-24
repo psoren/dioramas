@@ -29,13 +29,14 @@ export class BasePlate implements Entity {
     plate.castShadow = true;
     g.add(plate);
 
-    // Corner studs (LEGO bumps)
+    // Corner studs (LEGO bumps) — placed just inside each plate corner.
     const studGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.12, 14);
+    const studOffset = BASE_SIZE - 1.2;
     const corners: Array<[number, number]> = [
-      [6.6, 6.6],
-      [-6.6, 6.6],
-      [-6.6, -6.6],
-      [6.6, -6.6],
+      [studOffset, studOffset],
+      [-studOffset, studOffset],
+      [-studOffset, -studOffset],
+      [studOffset, -studOffset],
     ];
     for (const [cx, cz] of corners) {
       for (let i = 0; i < 2; i++) {

@@ -56,15 +56,69 @@ export interface PlacedEntityOptions {
   heading?: number;
 }
 
+type RocketState = 'idle' | 'ignition' | 'launching' | 'cooldown';
+
 export class MicroRocketLaunchpad implements Entity {
-  readonly object3d = this.build();
+  readonly object3d: THREE.Group;
+  private readonly rocket: THREE.Group;
+  private readonly flame: THREE.Mesh;
+  private readonly restingY = 0.25;
+  private state: RocketState = 'idle';
+  private timer = 8 + Math.random() * 18; // first launch in 8-26s
 
   constructor(opts: PlacedEntityOptions = {}) {
+    const built = this.build();
+    this.object3d = built.group;
+    this.rocket = built.rocket;
+    this.flame = built.flame;
     this.object3d.position.fromArray(opts.position ?? [3.8, 0.08, -3.9]);
     this.object3d.rotation.y = opts.heading ?? -Math.PI / 7;
+    this.flame.visible = false;
   }
 
-  private build(): THREE.Group {
+  update(dt: number): void {
+    this.timer -= dt;
+
+    if (this.state === 'idle' && this.timer <= 0) {
+      this.state = 'ignition';
+      this.timer = 1.2;
+      this.flame.visible = true;
+      this.flame.scale.set(1, 0.4, 1);
+    } else if (this.state === 'ignition') {
+      // Flame builds up; rocket trembles slightly
+      const t = 1 - Math.max(0, this.timer) / 1.2;
+      this.flame.scale.y = 0.4 + t * 0.9;
+      this.rocket.position.x = 0.28 + (Math.random() - 0.5) * 0.02;
+      if (this.timer <= 0) {
+        this.state = 'launching';
+        this.timer = 6.0; // launching for 6s, then cooldown
+        this.rocket.position.x = 0.28;
+      }
+    } else if (this.state === 'launching') {
+      // Accelerate upward
+      const elapsed = 6.0 - Math.max(0, this.timer);
+      const liftedBy = 0.5 * 1.8 * elapsed * elapsed; // 0.5 * a * t^2
+      this.rocket.position.y = this.restingY + liftedBy;
+      // Flame stretches behind as it rises (local position)
+      this.flame.position.y = -0.15 - liftedBy * 0.05;
+      this.flame.scale.y = 1.3 + Math.sin(elapsed * 24) * 0.3;
+      if (this.rocket.position.y > 25 || this.timer <= 0) {
+        this.state = 'cooldown';
+        this.timer = 4 + Math.random() * 6; // 4-10s before respawn
+        this.rocket.visible = false;
+        this.flame.visible = false;
+      }
+    } else if (this.state === 'cooldown' && this.timer <= 0) {
+      // Respawn rocket on the pad
+      this.rocket.position.set(0.28, this.restingY, -0.04);
+      this.rocket.visible = true;
+      this.flame.position.set(0, -0.15, 0);
+      this.state = 'idle';
+      this.timer = 14 + Math.random() * 22; // next launch in 14-36s
+    }
+  }
+
+  private build(): { group: THREE.Group; rocket: THREE.Group; flame: THREE.Mesh } {
     const g = new THREE.Group();
 
     const pad = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 1.55), MAT.gray);
@@ -112,12 +166,23 @@ export class MicroRocketLaunchpad implements Entity {
     }
     g.add(rocket);
 
+    // Launch flame — bright yellow-orange cone hanging below the rocket nozzles.
+    // Lives on the same group as the rocket so it moves with it during liftoff.
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.18, 0.7, 12, 1, true),
+      MAT.yellowTrans,
+    );
+    // Local to the rocket group (rocket itself is parented to the launchpad group).
+    flame.rotation.x = Math.PI;
+    flame.position.set(0, -0.15, 0);
+    rocket.add(flame);
+
     const pipe = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.08, 0.08), MAT.grayDark);
     pipe.position.set(0.05, 0.22, 0.7);
     pipe.castShadow = true;
     g.add(pipe);
 
-    return g;
+    return { group: g, rocket, flame };
   }
 }
 

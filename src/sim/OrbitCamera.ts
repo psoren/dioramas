@@ -9,7 +9,7 @@ export interface OrbitState {
 const MIN_EL = 0.08;
 const MAX_EL = Math.PI / 2 - 0.05;
 const MIN_DIST = 8;
-const MAX_DIST = 45;
+const MAX_DIST = 80;
 
 export class OrbitCamera {
   readonly target = new THREE.Vector3(0, 1.2, 0);
@@ -19,7 +19,7 @@ export class OrbitCamera {
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
     private readonly canvas: HTMLCanvasElement,
-    initial: OrbitState = { azimuth: Math.PI * 0.18, elevation: 0.55, distance: 19 },
+    initial: OrbitState = { azimuth: Math.PI * 0.18, elevation: 0.55, distance: 35 },
   ) {
     this.state = { ...initial };
     this.defaultState = { ...initial };

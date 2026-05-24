@@ -4,16 +4,16 @@ export function setupLighting(scene: THREE.Scene): void {
   scene.add(new THREE.AmbientLight(0x6680aa, 0.45));
 
   const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
-  sun.position.set(8, 14, 5);
+  sun.position.set(14, 22, 9);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
-  sc.left = -14;
-  sc.right = 14;
-  sc.top = 14;
-  sc.bottom = -14;
+  sc.left = -22;
+  sc.right = 22;
+  sc.top = 22;
+  sc.bottom = -22;
   sc.near = 0.5;
-  sc.far = 36;
+  sc.far = 60;
   sun.shadow.bias = -0.0004;
   scene.add(sun);
 

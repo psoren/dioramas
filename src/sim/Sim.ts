@@ -39,7 +39,7 @@ export class Sim {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene.background = new THREE.Color(0x05080f);
-    this.scene.fog = new THREE.Fog(0x05080f, 28, 75);
+    this.scene.fog = new THREE.Fog(0x05080f, 50, 130);
 
     this.camera = new THREE.PerspectiveCamera(
       38,

@@ -7,6 +7,6 @@ export const TRACK_CORNER_R_OUT = 1.1;
 export const TRACK_CORNER_R_IN = 0.6;
 export const TRACK_Y = 0.10;
 
-// Base plate (blue plate)
-export const BASE_SIZE = 7.8;
-export const BASE_CORNER_R = 0.55;
+// Base plate (blue plate). Bigger network: was 7.8 (16-stud plate); now 12 (24-stud-ish).
+export const BASE_SIZE = 12.0;
+export const BASE_CORNER_R = 0.8;
