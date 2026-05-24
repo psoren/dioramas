@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
+import { emit } from '../sim/EventBus';
 
 const MAT_BLACKTRON_YELLOW = new THREE.MeshStandardMaterial({
   color: 0xc7ff2e,
@@ -58,10 +59,18 @@ export interface PlacedEntityOptions {
 
 type RocketState = 'idle' | 'ignition' | 'launching' | 'cooldown';
 
+const MAT_DUST = new THREE.MeshStandardMaterial({
+  color: 0xa8a8a0,
+  transparent: true,
+  opacity: 0.45,
+  roughness: 1.0,
+});
+
 export class MicroRocketLaunchpad implements Entity {
   readonly object3d: THREE.Group;
   private readonly rocket: THREE.Group;
   private readonly flame: THREE.Mesh;
+  private readonly dustRing: THREE.Mesh;
   private readonly restingY = 0.25;
   private state: RocketState = 'idle';
   private timer = 8 + Math.random() * 18; // first launch in 8-26s
@@ -71,9 +80,11 @@ export class MicroRocketLaunchpad implements Entity {
     this.object3d = built.group;
     this.rocket = built.rocket;
     this.flame = built.flame;
+    this.dustRing = built.dustRing;
     this.object3d.position.fromArray(opts.position ?? [3.8, 0.08, -3.9]);
     this.object3d.rotation.y = opts.heading ?? -Math.PI / 7;
     this.flame.visible = false;
+    this.dustRing.visible = false;
   }
 
   update(dt: number): void {
@@ -84,15 +95,23 @@ export class MicroRocketLaunchpad implements Entity {
       this.timer = 1.2;
       this.flame.visible = true;
       this.flame.scale.set(1, 0.4, 1);
+      this.dustRing.visible = true;
+      this.dustRing.scale.set(0.2, 1, 0.2);
+      (this.dustRing.material as THREE.MeshStandardMaterial).opacity = 0.45;
+      emit('rocket-ignition', '🔥 Rocket Phoenix ignition');
     } else if (this.state === 'ignition') {
       // Flame builds up; rocket trembles slightly
       const t = 1 - Math.max(0, this.timer) / 1.2;
       this.flame.scale.y = 0.4 + t * 0.9;
       this.rocket.position.x = 0.28 + (Math.random() - 0.5) * 0.02;
+      // Dust ring expands outward
+      const ringScale = 0.2 + t * 2.0;
+      this.dustRing.scale.set(ringScale, 1, ringScale);
       if (this.timer <= 0) {
         this.state = 'launching';
         this.timer = 6.0; // launching for 6s, then cooldown
         this.rocket.position.x = 0.28;
+        emit('rocket-launched', '🚀 Rocket Phoenix launched');
       }
     } else if (this.state === 'launching') {
       // Accelerate upward
@@ -102,11 +121,16 @@ export class MicroRocketLaunchpad implements Entity {
       // Flame stretches behind as it rises (local position)
       this.flame.position.y = -0.15 - liftedBy * 0.05;
       this.flame.scale.y = 1.3 + Math.sin(elapsed * 24) * 0.3;
+      // Dust ring keeps expanding but fades out
+      const dustScale = 2.2 + elapsed * 0.4;
+      this.dustRing.scale.set(dustScale, 1, dustScale);
+      (this.dustRing.material as THREE.MeshStandardMaterial).opacity = Math.max(0, 0.45 - elapsed * 0.18);
       if (this.rocket.position.y > 25 || this.timer <= 0) {
         this.state = 'cooldown';
         this.timer = 4 + Math.random() * 6; // 4-10s before respawn
         this.rocket.visible = false;
         this.flame.visible = false;
+        this.dustRing.visible = false;
       }
     } else if (this.state === 'cooldown' && this.timer <= 0) {
       // Respawn rocket on the pad
@@ -118,7 +142,7 @@ export class MicroRocketLaunchpad implements Entity {
     }
   }
 
-  private build(): { group: THREE.Group; rocket: THREE.Group; flame: THREE.Mesh } {
+  private build(): { group: THREE.Group; rocket: THREE.Group; flame: THREE.Mesh; dustRing: THREE.Mesh } {
     const g = new THREE.Group();
 
     const pad = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 1.55), MAT.gray);
@@ -182,7 +206,17 @@ export class MicroRocketLaunchpad implements Entity {
     pipe.castShadow = true;
     g.add(pipe);
 
-    return { group: g, rocket, flame };
+    // Lunar dust ring — flat torus that puffs out around the pad during launch.
+    // Parented to the pad group (not the rocket) so it stays on the ground.
+    const dustRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.7, 0.18, 8, 24),
+      MAT_DUST.clone(),
+    );
+    dustRing.rotation.x = Math.PI / 2;
+    dustRing.position.set(0.28, 0.16, -0.04);
+    g.add(dustRing);
+
+    return { group: g, rocket, flame, dustRing };
   }
 }
 

@@ -25,6 +25,8 @@ import {
 } from '../entities/retroSets';
 import { CrossRouteIntersection } from '../entities/CrossRouteIntersection';
 import { MoonSurface } from '../entities/MoonSurface';
+import { Earth } from '../entities/Earth';
+import { MeteorShower } from '../entities/MeteorShower';
 import { trackPath, crossRouteCrossings } from './TrackPath';
 import { roadPath } from './RoadPath';
 import { getTrackRoute } from './TrackPath';
@@ -52,7 +54,9 @@ export type EntityKind =
   | 'icePlanetDefender'
   | 'spacePoliceCruiser'
   | 'crossRouteIntersection'
-  | 'moonSurface';
+  | 'moonSurface'
+  | 'earth'
+  | 'meteorShower';
 
 export interface SceneEntitySpec {
   id: string;
@@ -81,6 +85,8 @@ export interface BuiltSceneEntity {
 
 export const defaultSceneManifest: SceneEntitySpec[] = [
   { id: 'moon', kind: 'moonSurface' },
+  { id: 'earth', kind: 'earth' },
+  { id: 'meteor-shower', kind: 'meteorShower' },
   { id: 'base', kind: 'basePlate' },
   { id: 'road-surface', kind: 'roadRing' },
   // Seven independent routes
@@ -226,6 +232,10 @@ export function buildSceneEntity(
       return new SpacePoliceCruiser({ position: spec.position, heading: spec.heading });
     case 'moonSurface':
       return new MoonSurface();
+    case 'earth':
+      return new Earth();
+    case 'meteorShower':
+      return new MeteorShower();
     case 'crossRouteIntersection': {
       const crossing = crossRouteCrossings.find((c) => c.id === spec.crossingId);
       if (!crossing) throw new Error(`No cross-route crossing found with id "${spec.crossingId ?? ''}"`);

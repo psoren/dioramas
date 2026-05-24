@@ -3,6 +3,22 @@ import { MAT } from '../world/materials';
 import { TrackVehicle, TrackVehicleOptions } from './TrackVehicle';
 import { placeOnPath, wrap01 } from './PathVehicle';
 
+const ENGINE_GLOW_MAT = new THREE.MeshStandardMaterial({
+  color: 0x60ffff,
+  emissive: 0x40d0ff,
+  emissiveIntensity: 2.2,
+  transparent: true,
+  opacity: 0.95,
+});
+
+const ENGINE_HALO_MAT = new THREE.MeshStandardMaterial({
+  color: 0x60ffff,
+  emissive: 0x40d0ff,
+  emissiveIntensity: 1.2,
+  transparent: true,
+  opacity: 0.4,
+});
+
 export interface MonorailTrainOptions extends TrackVehicleOptions {
   /** Number of passenger/cargo cars trailing the locomotive. Defaults to 2. */
   cars?: number;
@@ -103,6 +119,16 @@ export class MonorailTrain extends TrackVehicle {
     const light = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.44), MAT.yellowTrans);
     light.position.set(0.75, 0.35, 0);
     g.add(light);
+
+    // Cyan engine glow at the rear of the locomotive — reads as a thruster intake.
+    const engineGlow = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.34), ENGINE_GLOW_MAT);
+    engineGlow.position.set(-0.5, 0.32, 0);
+    g.add(engineGlow);
+
+    // A subtle wider exhaust halo, slightly behind the glow block.
+    const halo = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.26, 0.46), ENGINE_HALO_MAT);
+    halo.position.set(-0.56, 0.32, 0);
+    g.add(halo);
     return g;
   }
 

@@ -1,4 +1,5 @@
 import { Sim } from '../sim/Sim';
+import { subscribe } from '../sim/EventBus';
 
 export interface VehicleTelemetry {
   speed: number;
@@ -42,6 +43,11 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       <div class="sep"></div>
       <button class="btn" id="btn-reset">Reset View</button>
     </div>
+
+    <div class="panel" id="event-feed">
+      <div class="eyebrow">EVENT FEED</div>
+      <ul id="event-list"></ul>
+    </div>
   `;
 
   const btnPlay = document.getElementById('btn-play') as HTMLButtonElement;
@@ -71,4 +77,19 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     statVel.textContent = (effectiveSpeed * 100).toFixed(0) + ' u/s';
     statLaps.textContent = String(v.laps);
   }, 100);
+
+  // Event feed: append sim events as <li>; cap length at 12.
+  const eventList = document.getElementById('event-list') as HTMLUListElement;
+  const MAX_EVENTS = 12;
+  subscribe((event) => {
+    const li = document.createElement('li');
+    li.textContent = event.message;
+    li.className = `evt evt-${event.kind}`;
+    eventList.appendChild(li);
+    while (eventList.children.length > MAX_EVENTS) {
+      eventList.removeChild(eventList.firstChild!);
+    }
+    // Fade-in
+    requestAnimationFrame(() => li.classList.add('shown'));
+  });
 }

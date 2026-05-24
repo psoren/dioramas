@@ -3,6 +3,7 @@ import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
 import { StationDef, TrackRoute, getTrackRoute } from '../world/TrackPath';
 import { MonorailTrain } from './MonorailTrain';
+import { emit } from '../sim/EventBus';
 
 type LoaderMode = 'waiting' | 'loading' | 'unloading' | 'dwell';
 
@@ -208,9 +209,12 @@ export class StationLoader implements Entity {
 
     if (transfer.action === 'load') {
       this.train.loadCargo(transfer.crate);
+      const dest = transfer.crate.userData.destinationId as string | undefined;
+      emit('cargo-loaded', `📦 Loaded ${this.station.id} → ${dest ?? '?'}`);
     } else {
       this.delivered.push({ crate: transfer.crate, rest: DELIVERED_REST });
       transfer.crate.position.copy(this.deliveredPosition(this.delivered.length - 1));
+      emit('cargo-delivered', `✅ Delivered to ${this.station.id}`);
     }
     this.transfer = undefined;
     this.beginDwell();

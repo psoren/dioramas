@@ -195,6 +195,43 @@ input[type=range]::-moz-range-thumb {
   color: var(--text);
 }
 
+#event-feed {
+  bottom: 22px;
+  left: 18px;
+  padding: 10px 14px;
+  width: 280px;
+  max-height: 220px;
+  overflow: hidden;
+}
+#event-feed .eyebrow {
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  color: var(--accent);
+  text-transform: uppercase;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+#event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+#event-list .evt {
+  font-size: 11px;
+  color: var(--text);
+  letter-spacing: 0.3px;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#event-list .evt.shown { opacity: 1; transform: translateX(0); }
+#event-list .evt-train-held { color: #ffb070; }
+#event-list .evt-train-released { color: #80f0a0; }
+#event-list .evt-rocket-launched { color: #ffe070; }
+
 .error-panel {
   left: 18px;
   bottom: 84px;

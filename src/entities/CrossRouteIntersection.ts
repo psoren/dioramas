@@ -3,6 +3,7 @@ import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
 import { CrossRouteCrossingDef } from '../world/TrackPath';
 import { MonorailTrain } from './MonorailTrain';
+import { emit } from '../sim/EventBus';
 
 interface TrainEntry {
   trainId: string;
@@ -57,9 +58,12 @@ export class CrossRouteIntersection implements Entity {
 
     for (const s of states) {
       const inApproachZone = s.approachDistance < this.crossing.approachDistance;
+      const wasHeld = s.entry.train.isHeld(reason);
       if (owner && s !== owner && inApproachZone) {
+        if (!wasHeld) emit('train-held', `🛑 ${s.entry.trainId} held at ${this.crossing.id}`);
         s.entry.train.hold(reason);
       } else {
+        if (wasHeld) emit('train-released', `▶️ ${s.entry.trainId} cleared ${this.crossing.id}`);
         s.entry.train.release(reason);
       }
     }
