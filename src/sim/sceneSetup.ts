@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 
-/** Sun above + ambient blue fill + cyan rim — underwater-tuned palette. */
+/**
+ * Bright sun-from-above + warm ambient — sun-drenched tropical reef lighting.
+ * Most of the colour comes top-down so the coral palette pops; the
+ * hemisphere fill softly lifts the floor.
+ */
 export function setupLighting(scene: THREE.Scene): void {
-  scene.add(new THREE.AmbientLight(0x4a7090, 0.55));
+  scene.add(new THREE.AmbientLight(0xbfe8f0, 0.65));
 
-  const sun = new THREE.DirectionalLight(0xeaf5ff, 1.1);
-  sun.position.set(8, 28, 6);
+  // Main sun — coming nearly straight down with a slight tilt so shadows are short.
+  const sun = new THREE.DirectionalLight(0xfff4d8, 1.9);
+  sun.position.set(4, 32, 3);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
@@ -18,12 +23,12 @@ export function setupLighting(scene: THREE.Scene): void {
   sun.shadow.bias = -0.0004;
   scene.add(sun);
 
-  // Faint cyan rim from the side — catches dorsal edges of fish, coral tips.
-  const rim = new THREE.DirectionalLight(0x40d0e0, 0.35);
-  rim.position.set(-9, 5, -7);
+  // Bright cyan rim from one side for fish/coral edges.
+  const rim = new THREE.DirectionalLight(0x80e8ff, 0.55);
+  rim.position.set(-9, 6, -7);
   scene.add(rim);
 
-  // Bluish bounce-fill from below.
-  const fill = new THREE.HemisphereLight(0x6090c0, 0x0a3050, 0.4);
+  // Warm-sky-over-cool-floor hemisphere lift.
+  const fill = new THREE.HemisphereLight(0x9fd8e8, 0x2080a0, 0.85);
   scene.add(fill);
 }

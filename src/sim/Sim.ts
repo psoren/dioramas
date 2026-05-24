@@ -27,12 +27,13 @@ export class Sim {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.toneMappingExposure = 1.25;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Underwater blue-green palette. Fog hides distant geometry into the haze.
-    this.scene.background = new THREE.Color(0x0a5070);
-    this.scene.fog = new THREE.Fog(0x0a5070, 10, 55);
+    // Sun-drenched tropical reef palette — bright aqua background, fog pushed
+    // back so the reef itself stays crisp and only the far distance hazes out.
+    this.scene.background = new THREE.Color(0x3da8c4);
+    this.scene.fog = new THREE.Fog(0x4cb8d0, 22, 80);
 
     this.camera = new THREE.PerspectiveCamera(
       42,
@@ -71,6 +72,9 @@ export class Sim {
       const raw = Math.min(this.clock.getDelta(), 0.1);
       const dt = this.playing ? raw * this.speedMultiplier : 0;
       for (const e of this.entities) e.update?.(dt);
+      // Drive the auto-camera (drift + occasional focus picks). Uses raw dt
+      // so the camera keeps moving even when the sim is paused.
+      this.orbit.tickWithFocus(raw);
       this.renderer.render(this.scene, this.camera);
     };
     tick();

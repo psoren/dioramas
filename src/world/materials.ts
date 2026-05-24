@@ -49,6 +49,35 @@ export const MAT = {
   sharkGray: std(0x5a6068, { roughness: 0.5 }),
   sharkBelly: std(0xd8dce0, { roughness: 0.5 }),
 
+  turtleShell: std(0x4a6a3a, { roughness: 0.7 }),
+  turtleShellPattern: std(0x2c4023, { roughness: 0.7 }),
+  turtleSkin: std(0x8a7a55, { roughness: 0.85 }),
+
+  mantaTop: std(0x252a38, { roughness: 0.45 }),
+  mantaBelly: std(0xe0e8ec, { roughness: 0.5 }),
+
+  jellyfishBell: new THREE.MeshStandardMaterial({
+    color: 0xffd8e8,
+    emissive: 0xffa0c8,
+    emissiveIntensity: 0.45,
+    transparent: true,
+    opacity: 0.55,
+    roughness: 0.15,
+    metalness: 0,
+    depthWrite: false,
+  }),
+
+  jellyfishTendril: new THREE.MeshStandardMaterial({
+    color: 0xffc8dc,
+    emissive: 0xff90b8,
+    emissiveIntensity: 0.3,
+    transparent: true,
+    opacity: 0.45,
+    roughness: 0.2,
+    metalness: 0,
+    depthWrite: false,
+  }),
+
   diverSuit: std(0x1a1a1c, { roughness: 0.65 }),
   diverSkin: std(0xe8c8a0, { roughness: 0.7 }),
   diverTank: std(0xb8b8c0, { roughness: 0.4, metalness: 0.4 }),
