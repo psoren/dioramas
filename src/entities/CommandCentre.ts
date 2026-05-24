@@ -117,6 +117,22 @@ export class CommandCentre implements Entity {
       g.add(m);
     }
 
+    // Cabin interior glimpsed through the trans-yellow window
+    const chair = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.34), MAT.grayDark);
+    chair.position.set(CX - 0.35, cabinY - 0.35, -0.28);
+    chair.castShadow = true;
+    g.add(chair);
+
+    const screen = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.42, 0.62), MAT.black);
+    screen.position.set(CX + cabinW / 2 - 0.08, cabinY - 0.18, -0.34);
+    g.add(screen);
+
+    for (let i = 0; i < 3; i++) {
+      const pixel = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.065, 0.025), i === 1 ? MAT.greenLED : MAT.blueTrans);
+      pixel.position.set(CX + cabinW / 2 - 0.04, cabinY - 0.3 + i * 0.13, -0.55 + i * 0.12);
+      g.add(pixel);
+    }
+
     // Classic Space logo plaque (front)
     const plaque = new THREE.Mesh(
       new THREE.BoxGeometry(0.6, 0.6, 0.04),
@@ -157,6 +173,38 @@ export class CommandCentre implements Entity {
     );
     roof.position.set(CX, cabinY + cabinH / 2 + 0.09, 0);
     g.add(roof);
+
+    const studGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.08, 16);
+    for (const sx of [-0.65, 0, 0.65]) {
+      for (const sz of [-0.48, 0.48]) {
+        const stud = new THREE.Mesh(studGeo, MAT.blueDark);
+        stud.position.set(CX + sx, cabinY + cabinH / 2 + 0.22, sz);
+        stud.castShadow = true;
+        g.add(stud);
+      }
+    }
+
+    // Solar panel on the rear roof corner
+    const solarPivot = new THREE.Group();
+    solarPivot.position.set(CX - 0.75, cabinY + cabinH / 2 + 0.42, -0.75);
+    solarPivot.rotation.z = -0.35;
+    solarPivot.rotation.y = -0.25;
+    g.add(solarPivot);
+
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.55, 8), MAT.grayDark);
+    mast.rotation.z = Math.PI / 2;
+    solarPivot.add(mast);
+
+    const solar = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.06, 0.48), MAT.blueTrans);
+    solar.position.x = -0.48;
+    solar.castShadow = true;
+    solarPivot.add(solar);
+
+    for (const z of [-0.12, 0.12]) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.025, 0.025), MAT.blueDark);
+      line.position.set(-0.48, 0.04, z);
+      solarPivot.add(line);
+    }
 
     // ---------- Antenna ----------
     const antenna = new THREE.Mesh(

@@ -10,7 +10,7 @@ export class Monorail extends TrackVehicle {
     super(opts);
   }
 
-  protected build(): THREE.Group {
+  protected build(_opts: TrackVehicleOptions): THREE.Group {
     const g = new THREE.Group();
 
     // Front car (white)

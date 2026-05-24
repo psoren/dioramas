@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { Entity } from './Entity';
 import { OrbitCamera } from './OrbitCamera';
-import { setupLighting, setupStarfield } from './sceneSetup';
+import { Starfield } from '../entities/Starfield';
+import { setupLighting } from './sceneSetup';
 
 /**
  * The simulation container. Owns the renderer, scene, camera, and a
@@ -49,7 +50,7 @@ export class Sim {
     this.orbit = new OrbitCamera(this.camera, this.canvas);
 
     setupLighting(this.scene);
-    setupStarfield(this.scene);
+    this.add(new Starfield(this.camera));
 
     window.addEventListener('resize', () => this.onResize());
   }

@@ -76,17 +76,23 @@ The orbit camera resets on every page load. Save its state to `localStorage` and
 
 ---
 
-### 6. Stars react to camera
+### 7. Render everything out of actual LEGO bricks
 
-The starfield is fixed in world space. Make it feel deeper: when the camera orbits, the starfield should counter-rotate slightly (parallax effect, like the stars are much further away than they really are).
+Replace ad-hoc `BoxGeometry`/`CylinderGeometry` calls with a small library of brick primitives so every entity reads as actual stud-bearing LEGO instead of generic boxes.
 
 **Acceptance:**
-- Visible parallax when orbiting — distant stars appear to move less than nearby ones.
-- No performance regression (still 60fps on a 2019-era laptop).
-- Implemented in `sceneSetup.ts` or a new `Starfield` entity. If you make it an entity, it'll need to subscribe to camera changes — that's fine.
+- New file `src/world/bricks.ts` exports `brick(w, h, d, opts)` and `plate(w, d, opts)` (plus `slope`, `cylinder`, `dish`, `antenna` if cheap) — each returns a `THREE.Group` with the correct chamfer + stud bumps on top and the right color from `MAT`.
+- Stud size and brick height match LEGO ratios (1 stud = 0.8 LEGO units = some scene scale; 1 brick = 3 plates tall).
+- Every existing entity rebuilt in terms of brick primitives. No `BoxGeometry` direct calls outside `bricks.ts` and `BasePlate.ts`.
+- Materials still go through `MAT` so palette is consistent.
+- Frame rate doesn't regress (instanced studs if needed — a 6x4 brick has 24 studs and many entities will share geometry).
+
+This is a big visual upgrade — the current models read as "blocks", and switching to brick primitives makes them read as LEGO. Suggested order: write the primitives, port one entity (e.g. `CommandCentre`) as a proof of concept and confirm scale + perf, then port the rest.
 
 ---
 
 ## Done
 
-(none yet)
+### 6. Stars react to camera
+
+Implemented as a new `Starfield` entity (`src/entities/Starfield.ts`) with three layered point clouds at different `followFactor` values (0.92 / 0.55 / 0.0). Each frame, every layer's group anchor is translated to `camera.position * followFactor`, so far layers track the camera (apparently distant, low parallax) while near layers stay fixed in world space (full parallax sweep during orbit). `setupStarfield` removed from `sceneSetup.ts`; `Sim` now constructs the entity directly so its `update()` runs every frame (works while paused too — `dt` is unused). Star count unchanged (1200), `fog: false` on the materials so layered placement looks consistent.

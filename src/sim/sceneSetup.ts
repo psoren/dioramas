@@ -26,30 +26,3 @@ export function setupLighting(scene: THREE.Scene): void {
   scene.add(rim);
 }
 
-export function setupStarfield(scene: THREE.Scene, count = 1200): void {
-  const g = new THREE.BufferGeometry();
-  const positions: number[] = [];
-  const colors: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const r = 55 + Math.random() * 40;
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    positions.push(
-      r * Math.sin(phi) * Math.cos(theta),
-      r * Math.cos(phi) * 0.7 + 6,
-      r * Math.sin(phi) * Math.sin(theta),
-    );
-    const t = Math.random();
-    colors.push(0.7 + t * 0.3, 0.8 + t * 0.2, 1.0);
-  }
-  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const m = new THREE.PointsMaterial({
-    size: 0.18,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.85,
-    sizeAttenuation: true,
-  });
-  scene.add(new THREE.Points(g, m));
-}

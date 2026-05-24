@@ -194,3 +194,16 @@ input[type=range]::-moz-range-thumb {
   font-size: 9px;
   color: var(--text);
 }
+
+.error-panel {
+  left: 18px;
+  bottom: 84px;
+  max-width: min(520px, calc(100vw - 36px));
+  padding: 10px 14px;
+  color: #ffd7c2;
+  border-color: rgba(255, 128, 96, 0.5);
+  background: rgba(42, 12, 8, 0.86);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}

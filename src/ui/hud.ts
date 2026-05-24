@@ -1,12 +1,16 @@
 import { Sim } from '../sim/Sim';
-import { TrackVehicle } from '../entities/TrackVehicle';
+
+export interface VehicleTelemetry {
+  speed: number;
+  laps: number;
+}
 
 export interface HUDOptions {
   setNumber: string;
   setName: string;
   subtitle?: string;
   /** The vehicle whose stats appear in the HUD. */
-  trackedVehicle: TrackVehicle;
+  trackedVehicle: VehicleTelemetry;
 }
 
 export function mountHUD(sim: Sim, opts: HUDOptions): void {

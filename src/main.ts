@@ -1,35 +1,62 @@
 import { Sim } from './sim/Sim';
-import { BasePlate } from './entities/BasePlate';
-import { TrackRing } from './entities/TrackRing';
-import { CommandCentre } from './entities/CommandCentre';
-import { Monorail } from './entities/Monorail';
-import { trackPath } from './world/TrackPath';
 import { mountHUD } from './ui/hud';
+import { Entity } from './sim/Entity';
+import {
+  buildSceneEntity,
+  defaultSceneManifest,
+  hasTelemetry,
+} from './world/sceneManifest';
+
+window.addEventListener('error', (event) => {
+  showStartupError('Runtime', event.error ?? event.message);
+});
+window.addEventListener('unhandledrejection', (event) => {
+  showStartupError('Runtime promise', event.reason);
+});
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const sim = new Sim(canvas);
 
-// ----- Static structures -----
-sim.add(new BasePlate());
-sim.add(new TrackRing());
-sim.add(new CommandCentre());
+function addEntity<E extends Entity>(label: string, create: () => E): E | undefined {
+  try {
+    return sim.add(create());
+  } catch (error) {
+    showStartupError(label, error);
+    return undefined;
+  }
+}
 
-// ----- Vehicles -----
-const monorail = sim.add(
-  new Monorail({
-    path: trackPath,
-    speed: 0.07,
-    t: 0,
-  }),
-);
+function showStartupError(label: string, error: unknown): void {
+  const root = document.getElementById('ui-root');
+  if (!root) return;
+  const panel = document.createElement('div');
+  panel.className = 'panel error-panel';
+  const message = error instanceof Error ? error.message : String(error);
+  panel.textContent = `${label} failed: ${message}`;
+  root.appendChild(panel);
+  console.error(`${label} failed`, error);
+}
+
+const registry = new Map<string, Entity>();
+const builtEntities = [];
+for (const spec of defaultSceneManifest) {
+  const entity = addEntity(spec.id, () => buildSceneEntity(spec, registry));
+  if (!entity) continue;
+  registry.set(spec.id, entity);
+  builtEntities.push({ spec, entity });
+}
+
+const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTelemetry(entity));
 
 // ----- UI -----
-mountHUD(sim, {
-  setNumber: '40786',
-  setName: 'Micro Command Centre',
-  subtitle: 'Classic Space · Telemetry',
-  trackedVehicle: monorail,
-});
+if (tracked && hasTelemetry(tracked.entity)) {
+  mountHUD(sim, {
+    setNumber: '40786',
+    setName: 'Micro Command Centre',
+    subtitle: 'Classic Space · Telemetry',
+    trackedVehicle: tracked.entity,
+  });
+}
 
 sim.start();
 
