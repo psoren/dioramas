@@ -6,47 +6,6 @@ Scoped, acceptance-criteria-bearing chunks of work. Pick one, do it, mark done. 
 
 ## Open
 
-### 0. Multi-crossing track layouts (pretzel / trefoil)
-
-Currently the 🎲 random track button produces either an extruded
-loop (no crossings) or a parametric figure-8 (exactly one
-self-crossing). Real complexity wants ≥2 crossings on a single
-closed walk — pretzel / trefoil / chained-figure-8 shapes.
-
-**Why this was deferred**: hand-designing multi-crossing closed
-walks is finicky. The walk must visit each crossing cell exactly
-twice with perpendicular routings, and visit every OTHER cell
-exactly once. Naive attempts produce extra duplicate cells
-(non-perpendicular revisits = invalid).
-
-**Approach options to evaluate next time**:
-
-1. **Algorithmic twist operator** on existing walks. Take a straight
-   segment of an extruded loop, replace with a detour that crosses
-   back through the original segment at one cell. Each twist adds
-   one CROSS_NESW. Stack twists for multi-crossing.
-2. **Hand-design 2-3 multi-crossing templates** as fixed cell paths
-   in `LOOP_TEMPLATES`. `placePolygonLoop` already handles
-   multi-visit cells via auto-CROSS_NESW placement — just need
-   walks that produce the right cell list.
-3. **Self-avoiding-with-crossings generator**: relax the
-   `isSelfAvoiding` check in `extrudeRandomSegment` to ALLOW
-   self-intersections, but only if the intersection's two visits
-   are perpendicular. Each allowed crossing becomes a CROSS_NESW.
-
-**Acceptance**:
-- 🎲 button occasionally produces layouts with 2+ crossings.
-- Each crossing renders as a CROSS_NESW with valid routing.
-- No overlapping geometry (existing cell-uniqueness tests still
-  green).
-- Add a regression test that the multi-crossing variant produces
-  exactly N CROSS_NESW tiles for N-crossing layouts.
-
-**Related**: `src/world/trackLayout.ts` (generators), `src/entities/TileTrack.ts`,
-`src/main.ts` random button.
-
----
-
 ### 1. SpaceTruck entity with wander behavior
 
 Create `src/entities/SpaceTruck.ts`. The README has a scaffold — use it as a starting point but make the truck actually look like something (not just a box).
