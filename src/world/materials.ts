@@ -57,4 +57,10 @@ export const MAT = {
     roughness: 0.2,
     metalness: 0,
   }),
+
+  // Moon surface — not really LEGO colours, but kept here so the palette
+  // remains the one place we allocate shared materials.
+  moonSurface: std(0x8a8a8e, { roughness: 0.95, metalness: 0.02 }),
+  moonCrater:  std(0x60606a, { roughness: 1.0,  metalness: 0.02 }),
+  moonRock:    std(0x6b6b72, { roughness: 0.9,  metalness: 0.02 }),
 } as const;

@@ -7,6 +7,12 @@ import { CommandCentre } from '../entities/CommandCentre';
 import { StationPlatform } from '../entities/StationPlatform';
 import { Elevator } from '../entities/Elevator';
 import { MicroAstronaut } from '../entities/MicroAstronaut';
+import { AstronautPedestrian } from '../entities/AstronautPedestrian';
+import { ApartmentBuilding } from '../entities/ApartmentBuilding';
+import { SolarFarm } from '../entities/SolarFarm';
+import { ContainerDepot } from '../entities/ContainerDepot';
+import { CargoStop } from '../entities/SpaceTruck';
+import { TileTrack } from '../entities/TileTrack';
 import { MonorailTrain } from '../entities/MonorailTrain';
 import { SpaceTruck } from '../entities/SpaceTruck';
 import { StationLoader } from '../entities/StationLoader';
@@ -30,6 +36,7 @@ import { MeteorShower } from '../entities/MeteorShower';
 import { trackPath, crossRouteCrossings } from './TrackPath';
 import { roadPath } from './RoadPath';
 import { getTrackRoute } from './TrackPath';
+import { GROUND_OBJECT_Y, LAUNCHPAD_GROUND_Y } from './constants';
 
 export type EntityKind =
   | 'basePlate'
@@ -56,7 +63,12 @@ export type EntityKind =
   | 'crossRouteIntersection'
   | 'moonSurface'
   | 'earth'
-  | 'meteorShower';
+  | 'meteorShower'
+  | 'astronautPedestrian'
+  | 'apartmentBuilding'
+  | 'solarFarm'
+  | 'containerDepot'
+  | 'tileTrack';
 
 export interface SceneEntitySpec {
   id: string;
@@ -76,6 +88,10 @@ export interface SceneEntitySpec {
   carSpacing?: number;
   /** For crossRouteIntersection: which named crossing to use. */
   crossingId?: string;
+  /** For spaceTruck: list of cargo pickup/drop stops along the path. */
+  cargoStops?: CargoStop[];
+  /** For spaceTruck: start the truck with a cargo container shown. */
+  startWithCargo?: boolean;
 }
 
 export interface BuiltSceneEntity {
@@ -98,7 +114,7 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
   { id: 'track-h', kind: 'trackRing', routeId: 'h' },
   { id: 'track-v', kind: 'trackRing', routeId: 'v' },
   { id: 'command-centre', kind: 'commandCentre' },
-  // Station platforms — Futuron hero piece on a corner loop, basic platforms elsewhere.
+  // Station platforms — one Futuron hero piece, basic platforms everywhere else.
   { id: 'platform-nw-north', kind: 'futuronStation', routeId: 'nw', stationId: 'nw-north' },
   { id: 'platform-nw-south', kind: 'stationPlatform', routeId: 'nw', stationId: 'nw-south' },
   { id: 'platform-ne-north', kind: 'stationPlatform', routeId: 'ne', stationId: 'ne-north' },
@@ -139,23 +155,56 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
   { id: 'loader-h-east', kind: 'stationLoader', routeId: 'h', stationId: 'h-east', targetId: 'h-train' },
   { id: 'loader-v-north', kind: 'stationLoader', routeId: 'v', stationId: 'v-north', targetId: 'v-train' },
   { id: 'loader-v-south', kind: 'stationLoader', routeId: 'v', stationId: 'v-south', targetId: 'v-train' },
-  // Buildings — repositioned for the bigger plate. Things are spread out across the open
-  // ground between/around loops. Flying entities raised a bit to clear the V overpass.
-  { id: 'micro-rocket-launchpad', kind: 'microRocketLaunchpad', position: [8.0, 0.06, -8.0], heading: 0 },
+  // Buildings spread across the open ground between/around the loops.
+  // Flying entities sit at fixed altitudes; ground entities use the shared
+  // GROUND_OBJECT_Y so they line up consistently.
+  { id: 'micro-rocket-launchpad', kind: 'microRocketLaunchpad', position: [8.0, LAUNCHPAD_GROUND_Y, -8.0], heading: 0 },
   { id: 'mtron-magnetizer', kind: 'mtronMagnetizer', position: [-8.0, 3.5, -8.0], heading: Math.PI / 2 },
-  { id: 'ice-planet-defender', kind: 'icePlanetDefender', position: [-8.0, 0.06, 8.0], heading: -Math.PI / 2 },
+  { id: 'ice-planet-defender', kind: 'icePlanetDefender', position: [-8.0, LAUNCHPAD_GROUND_Y, 8.0], heading: -Math.PI / 2 },
   { id: 'space-police-cruiser', kind: 'spacePoliceCruiser', position: [10.5, 3.0, 0.0], heading: Math.PI },
   { id: 'galaxy-explorer-flyover', kind: 'galaxyExplorerShip', position: [8.0, 4.0, 8.0], heading: -Math.PI / 4 },
-  { id: 'galaxy-rover', kind: 'galaxyExplorerRover', position: [-2.5, 0.08, 8.5], heading: 0 },
-  { id: 'robot-helper', kind: 'robotHelper', position: [2.5, 0.08, 8.5], heading: Math.PI / 2 },
+  { id: 'galaxy-rover', kind: 'galaxyExplorerRover', position: [-2.5, GROUND_OBJECT_Y, 8.5], heading: 0 },
+  { id: 'robot-helper', kind: 'robotHelper', position: [2.5, GROUND_OBJECT_Y, 8.5], heading: Math.PI / 2 },
   { id: 'blacktron-cruiser', kind: 'blacktronCruiser', position: [0.0, 4.5, -10.5], heading: -Math.PI / 2 },
-  { id: 'blacktron-outpost', kind: 'blacktronOutpost', position: [-2.5, 0.08, -8.5], heading: Math.PI / 2 },
+  { id: 'blacktron-outpost', kind: 'blacktronOutpost', position: [-2.5, GROUND_OBJECT_Y, -8.5], heading: Math.PI / 2 },
   { id: 'rear-elevator', kind: 'elevator' },
   { id: 'station-astronaut', kind: 'microAstronaut', position: [-6.0, 0.0, 6.0], heading: Math.PI },
   { id: 'elevator-astronaut', kind: 'microAstronaut', position: [-7.0, 0.0, -3.5], heading: Math.PI / 2 },
-  // Both space trucks now run the SAME direction so they can't head-on collide.
-  { id: 'truck-a', kind: 'spaceTruck', speed: 0.035, t: 0.08 },
+  // Road trucks share a single direction so they can't head-on collide.
+  // truck-a is a cargo runner shuttling between the two container depots —
+  // loads at the north depot (t≈0.25), unloads at the south depot (t≈0.75).
+  {
+    id: 'truck-a',
+    kind: 'spaceTruck',
+    speed: 0.035,
+    t: 0.08,
+    cargoStops: [
+      { t: 0.25, action: 'load',   label: 'north depot' },
+      { t: 0.75, action: 'unload', label: 'south depot' },
+    ],
+  },
   { id: 'truck-b', kind: 'spaceTruck', speed: 0.022, t: 0.5 },
+  // Container depots either side of the road. Trucks pick up at north,
+  // deliver to south.
+  { id: 'depot-north', kind: 'containerDepot', position: [0, 0.05, 13], heading: 0 },
+  { id: 'depot-south', kind: 'containerDepot', position: [0, 0.05, -13], heading: Math.PI },
+  // Demo of the procedurally-composed tile track system. Renders a small
+  // rectangle loop made of CURVE_NE corners + STRAIGHT_NS edges. Sits on
+  // the moon off to the NE.
+  { id: 'tile-track-1', kind: 'tileTrack', position: [18, 0.02, 14] },
+  // Astronaut apartment on the moon surface — pedestrians use it as "home".
+  // Door faces the baseplate (heading rotates +X toward origin).
+  { id: 'apartment-1', kind: 'apartmentBuilding', position: [-16, 0.02, 10], heading: Math.PI * 0.75 },
+  // Solar farm on the opposite side. Panels track the sun through the day/night cycle.
+  { id: 'solar-farm-1', kind: 'solarFarm', position: [16, 0.02, -10], heading: 0 },
+  // Pedestrian astronauts wandering the moon surface around the baseplate.
+  // `t` is used as a per-instance speed jitter (see manifest builder).
+  { id: 'pedestrian-1', kind: 'astronautPedestrian', t: 0.0 },
+  { id: 'pedestrian-2', kind: 'astronautPedestrian', t: 0.12 },
+  { id: 'pedestrian-3', kind: 'astronautPedestrian', t: 0.27 },
+  { id: 'pedestrian-4', kind: 'astronautPedestrian', t: 0.34 },
+  { id: 'pedestrian-5', kind: 'astronautPedestrian', t: 0.42 },
+  { id: 'pedestrian-6', kind: 'astronautPedestrian', t: 0.05 },
 ];
 
 export function buildSceneEntity(
@@ -207,6 +256,8 @@ export function buildSceneEntity(
         path: spec.track === 'monorail' ? trackPath : roadPath,
         speed: signedSpeed(spec, 0.03),
         t: spec.t,
+        cargoStops: spec.cargoStops,
+        startWithCargo: spec.startWithCargo,
       });
     case 'microRocketLaunchpad':
       return new MicroRocketLaunchpad({ position: spec.position, heading: spec.heading });
@@ -236,6 +287,35 @@ export function buildSceneEntity(
       return new Earth();
     case 'meteorShower':
       return new MeteorShower();
+    case 'apartmentBuilding':
+      return new ApartmentBuilding({
+        position: spec.position ?? [-16, 0.02, 10],
+        heading: spec.heading,
+      });
+    case 'solarFarm':
+      return new SolarFarm({
+        position: spec.position ?? [16, 0.02, -10],
+        heading: spec.heading,
+      });
+    case 'containerDepot':
+      return new ContainerDepot({
+        position: spec.position ?? [13, 0.05, 0],
+        heading: spec.heading,
+      });
+    case 'tileTrack':
+      return new TileTrack({
+        position: spec.position ?? [18, 0.02, 14],
+        rectangle: { gx0: -2, gz0: -1, gx1: 1, gz1: 1 },
+      });
+    case 'astronautPedestrian':
+      // Pedestrians wander an annulus around the baseplate on the moon
+      // surface. Default bounds keep them off the plate and out of the fog.
+      return new AstronautPedestrian({
+        innerRadius: 14,
+        outerRadius: 22,
+        groundY: 0.02,
+        speed: 0.5 + ((spec.t ?? 0) % 0.5),
+      });
     case 'crossRouteIntersection': {
       const crossing = crossRouteCrossings.find((c) => c.id === spec.crossingId);
       if (!crossing) throw new Error(`No cross-route crossing found with id "${spec.crossingId ?? ''}"`);

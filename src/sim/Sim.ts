@@ -80,6 +80,9 @@ export class Sim {
       const raw = Math.min(this.clock.getDelta(), 0.1);
       const dt = this.playing ? raw * this.speedMultiplier : 0;
       for (const e of this.entities) e.update?.(dt);
+      // Drive cinematic auto-camera (drift + occasional focus picks). Uses
+      // raw dt so the camera keeps moving while the sim is paused.
+      this.orbit.tickWithFocus(raw);
       this.renderer.render(this.scene, this.camera);
     };
     tick();

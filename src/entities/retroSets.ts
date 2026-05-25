@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
 import { emit } from '../sim/EventBus';
+import { bobY, applyShadows } from '../world/motion';
 
 const MAT_BLACKTRON_YELLOW = new THREE.MeshStandardMaterial({
   color: 0xc7ff2e,
@@ -234,7 +235,7 @@ export class GalaxyExplorerShip implements Entity {
 
   update(dt: number): void {
     this.phase += dt;
-    this.object3d.position.y = this.baseY + Math.sin(this.phase * 0.8) * 0.18;
+    this.object3d.position.y = bobY(this.baseY, this.phase, 0.8, 0.18);
     this.object3d.rotation.z = Math.sin(this.phase * 0.6) * 0.04;
   }
 
@@ -288,18 +289,15 @@ export class GalaxyExplorerRover implements Entity {
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.26, 0.62), MAT.white);
     body.position.y = 0.34;
-    body.castShadow = true;
     g.add(body);
 
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.36), MAT.blue);
     seat.position.set(-0.2, 0.56, 0);
-    seat.castShadow = true;
     g.add(seat);
 
     const dish = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), MAT.gray);
     dish.position.set(0.38, 0.68, 0.12);
     dish.rotation.z = -0.8;
-    dish.castShadow = true;
     g.add(dish);
 
     const wheelGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.12, 16);
@@ -308,11 +306,11 @@ export class GalaxyExplorerRover implements Entity {
         const wheel = new THREE.Mesh(wheelGeo, MAT.black);
         wheel.rotation.x = Math.PI / 2;
         wheel.position.set(x, 0.2, z);
-        wheel.castShadow = true;
         g.add(wheel);
       }
     }
 
+    applyShadows(g);
     return g;
   }
 }
@@ -320,17 +318,19 @@ export class GalaxyExplorerRover implements Entity {
 export class RobotHelper implements Entity {
   readonly object3d: THREE.Group;
   private phase = 0;
+  private readonly baseY: number;
 
-  constructor(private readonly opts: PlacedEntityOptions = {}) {
+  constructor(opts: PlacedEntityOptions = {}) {
     this.object3d = this.build();
     this.object3d.position.fromArray(opts.position ?? [2.6, 0.08, -4.55]);
+    this.baseY = this.object3d.position.y;
     this.object3d.rotation.y = opts.heading ?? 0.5;
   }
 
   update(dt: number): void {
     this.phase += dt * 3;
     this.object3d.rotation.y += dt * 0.25;
-    this.object3d.position.y = (this.opts.position?.[1] ?? 0.08) + Math.sin(this.phase) * 0.035;
+    this.object3d.position.y = bobY(this.baseY, this.phase, 1, 0.035);
   }
 
   private build(): THREE.Group {
@@ -363,16 +363,18 @@ export class RobotHelper implements Entity {
 export class BlacktronCruiser implements Entity {
   readonly object3d: THREE.Group;
   private phase = 0;
+  private readonly baseY: number;
 
-  constructor(private readonly opts: PlacedEntityOptions = {}) {
+  constructor(opts: PlacedEntityOptions = {}) {
     this.object3d = this.build();
     this.object3d.position.fromArray(opts.position ?? [4.9, 2.4, 0.4]);
+    this.baseY = this.object3d.position.y;
     this.object3d.rotation.y = opts.heading ?? -Math.PI / 2.5;
   }
 
   update(dt: number): void {
     this.phase += dt;
-    this.object3d.position.y = (this.opts.position?.[1] ?? 2.4) + Math.sin(this.phase * 1.2) * 0.12;
+    this.object3d.position.y = bobY(this.baseY, this.phase, 1.2, 0.12);
     this.object3d.rotation.y += dt * 0.12;
   }
 
@@ -420,13 +422,10 @@ export class BlacktronOutpost implements Entity {
     const g = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.16, 1.0), MAT.black);
     base.position.y = 0.08;
-    base.castShadow = true;
-    base.receiveShadow = true;
     g.add(base);
 
     const tower = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.96, 0.42), MAT.black);
     tower.position.set(-0.32, 0.62, 0.12);
-    tower.castShadow = true;
     g.add(tower);
 
     const window = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.3), MAT_BLACKTRON_YELLOW);
@@ -436,9 +435,9 @@ export class BlacktronOutpost implements Entity {
     const dish = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), MAT.grayDark);
     dish.position.set(0.3, 0.72, -0.18);
     dish.rotation.z = 0.8;
-    dish.castShadow = true;
     g.add(dish);
 
+    applyShadows(g, true, true);
     return g;
   }
 }
@@ -549,7 +548,7 @@ export class MTronMagnetizer implements Entity {
 
   update(dt: number): void {
     this.phase += dt;
-    this.object3d.position.y = this.baseY + Math.sin(this.phase * 0.7) * 0.15;
+    this.object3d.position.y = bobY(this.baseY, this.phase, 0.7, 0.15);
     this.magnet.rotation.z = Math.sin(this.phase * 1.3) * 0.18;
   }
 
@@ -727,7 +726,7 @@ export class SpacePoliceCruiser implements Entity {
 
   update(dt: number): void {
     this.phase += dt;
-    this.object3d.position.y = this.baseY + Math.sin(this.phase * 0.9) * 0.1;
+    this.object3d.position.y = bobY(this.baseY, this.phase, 0.9, 0.1);
     this.object3d.rotation.y += dt * 0.08;
   }
 

@@ -1,28 +1,11 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
+import { MAT } from '../world/materials';
 
 const MOON_RADIUS = 60;
 const MOON_Y = -0.5;
 const CRATER_COUNT = 28;
 const ROCK_COUNT = 24;
-
-const MAT_MOON = new THREE.MeshStandardMaterial({
-  color: 0x8a8a8e,
-  roughness: 0.95,
-  metalness: 0.02,
-});
-
-const MAT_CRATER = new THREE.MeshStandardMaterial({
-  color: 0x60606a,
-  roughness: 1.0,
-  metalness: 0.02,
-});
-
-const MAT_ROCK = new THREE.MeshStandardMaterial({
-  color: 0x6b6b72,
-  roughness: 0.9,
-  metalness: 0.02,
-});
 
 /**
  * Flat moon surface around the plate. A big gray disc with scattered crater
@@ -38,7 +21,7 @@ export class MoonSurface implements Entity {
     // Main surface disc
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(MOON_RADIUS, 64),
-      MAT_MOON,
+      MAT.moonSurface,
     );
     disc.rotation.x = -Math.PI / 2;
     disc.position.y = MOON_Y;
@@ -57,7 +40,7 @@ export class MoonSurface implements Entity {
       const craterR = 1.2 + rng() * 3.5;
       const crater = new THREE.Mesh(
         new THREE.CircleGeometry(craterR, 24),
-        MAT_CRATER,
+        MAT.moonCrater,
       );
       crater.rotation.x = -Math.PI / 2;
       crater.position.set(x, MOON_Y + 0.01, z);
@@ -74,7 +57,7 @@ export class MoonSurface implements Entity {
       const size = 0.2 + rng() * 0.6;
       const rock = new THREE.Mesh(
         new THREE.DodecahedronGeometry(size, 0),
-        MAT_ROCK,
+        MAT.moonRock,
       );
       rock.position.set(x, MOON_Y + size * 0.5, z);
       rock.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);

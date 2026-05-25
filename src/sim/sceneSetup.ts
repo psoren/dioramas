@@ -7,13 +7,15 @@ export function setupLighting(scene: THREE.Scene): void {
   sun.position.set(14, 22, 9);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
+  // Wider bounds so the day/night cycle can rotate the sun around without
+  // shadows getting cut off at low angles.
   const sc = sun.shadow.camera;
-  sc.left = -22;
-  sc.right = 22;
-  sc.top = 22;
-  sc.bottom = -22;
+  sc.left = -28;
+  sc.right = 28;
+  sc.top = 28;
+  sc.bottom = -28;
   sc.near = 0.5;
-  sc.far = 60;
+  sc.far = 80;
   sun.shadow.bias = -0.0004;
   scene.add(sun);
 

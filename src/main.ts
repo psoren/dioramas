@@ -6,6 +6,11 @@ import {
   defaultSceneManifest,
   hasTelemetry,
 } from './world/sceneManifest';
+import { DayNightCycle } from './entities/DayNightCycle';
+import { MonorailTrain } from './entities/MonorailTrain';
+import { SpaceTruck } from './entities/SpaceTruck';
+import { AstronautPedestrian } from './entities/AstronautPedestrian';
+import { ApartmentBuilding } from './entities/ApartmentBuilding';
 
 window.addEventListener('error', (event) => {
   showStartupError('Runtime', event.error ?? event.message);
@@ -45,6 +50,31 @@ for (const spec of defaultSceneManifest) {
   registry.set(spec.id, entity);
   builtEntities.push({ spec, entity });
 }
+
+// Wire any pedestrians to the first apartment as their home address.
+const apartment = builtEntities
+  .map(({ entity }) => entity)
+  .find((e): e is ApartmentBuilding => e instanceof ApartmentBuilding);
+if (apartment) {
+  for (const { entity } of builtEntities) {
+    if (entity instanceof AstronautPedestrian) entity.setHome(apartment.doorPosition);
+  }
+}
+
+// Day/night cycle. Built after the manifest so it can discover the lights
+// the manifest's lighting setup added to the scene.
+addEntity('day-night-cycle', () => new DayNightCycle(sim));
+
+// Cinematic auto-camera: the things worth focusing on are the moving
+// vehicles (trains, trucks) and the wandering pedestrians. Stationary set
+// pieces aren't interesting to "circle" — they'd just sit there.
+sim.orbit.focusCandidates = builtEntities
+  .filter(({ entity }) =>
+    entity instanceof MonorailTrain ||
+    entity instanceof SpaceTruck ||
+    entity instanceof AstronautPedestrian,
+  )
+  .map(({ entity }) => entity.object3d);
 
 const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTelemetry(entity));
 
