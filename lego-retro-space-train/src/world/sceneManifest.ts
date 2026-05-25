@@ -93,8 +93,10 @@ export interface SceneEntitySpec {
   startWithCargo?: boolean;
   /** For monorailTrain or stationPlatform: tile-track entity ID to attach to. */
   tileTrackId?: string;
-  /** For stationPlatform: which tile cell on `tileTrackId` to attach to. */
+  /** For stationPlatform / stationLoader: which tile cell on `tileTrackId`. */
   cell?: [number, number];
+  /** For stationLoader on a tile track: station IDs to ship cargo to. */
+  destinationIds?: string[];
 }
 
 export interface BuiltSceneEntity {
@@ -124,10 +126,27 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
     carSpacing: 0.05,
     telemetry: true,
   },
-  // First tile-cell-based station. Sits beside the north-edge straight
-  // at cell (0, -2). Position + heading derived from the tile track's
-  // layout (no hand-picked coords).
+  // Two tile-cell-based stations on opposite edges of the loop. Position
+  // and heading are derived entirely from the tile-track's layout.
   { id: 'station-north', kind: 'stationPlatform', tileTrackId: 'main-tile-track', cell: [0, -2] },
+  { id: 'station-south', kind: 'stationPlatform', tileTrackId: 'main-tile-track', cell: [0, 2] },
+  // Loaders connecting each station to the train; cargo cycles back and forth.
+  {
+    id: 'loader-north',
+    kind: 'stationLoader',
+    tileTrackId: 'main-tile-track',
+    cell: [0, -2],
+    targetId: 'main-tile-train',
+    destinationIds: ['station-south'],
+  },
+  {
+    id: 'loader-south',
+    kind: 'stationLoader',
+    tileTrackId: 'main-tile-track',
+    cell: [0, 2],
+    targetId: 'main-tile-train',
+    destinationIds: ['station-north'],
+  },
 ];
 
 export function buildSceneEntity(
@@ -154,6 +173,9 @@ export function buildSceneEntity(
       const target = spec.targetId ? registry.get(spec.targetId) : undefined;
       if (!(target instanceof MonorailTrain)) {
         throw new Error(`StationLoader target "${spec.targetId ?? ''}" must be a MonorailTrain`);
+      }
+      if (spec.tileTrackId && spec.cell) {
+        return new StationLoader(target, stationLoaderOnTile(spec, registry));
       }
       return new StationLoader(target, { routeId: spec.routeId, stationId: spec.stationId });
     }
@@ -286,34 +308,69 @@ const STATION_LATERAL_OFFSET = 1.15;
 /** Platform Y so it sits on the baseplate. */
 const STATION_Y = 0.32;
 
-function stationPlatformOnTile(
+/** Sample the tile-track at a cell to recover (position, queueDir, t, heading)
+ *  used by both the platform builder and the loader builder. */
+function tileCellSample(
   spec: SceneEntitySpec,
   registry: ReadonlyMap<string, Entity>,
-): { position: THREE.Vector3Tuple; heading: number } {
+): {
+  worldPos: THREE.Vector3Tuple;
+  queueDir: THREE.Vector3Tuple;
+  tValue: number;
+  heading: number;
+} {
   const tt = registry.get(spec.tileTrackId!);
   if (!(tt instanceof TileTrack)) {
-    throw new Error(`stationPlatform tileTrackId "${spec.tileTrackId}" must point at a TileTrack`);
+    throw new Error(`tileTrackId "${spec.tileTrackId}" must point at a TileTrack`);
   }
   const [gx, gz] = spec.cell!;
   const span = tt.loop.tileSpans.find((s) => s.gridX === gx && s.gridZ === gz);
   if (!span) {
     throw new Error(`No tile at cell (${gx},${gz}) on tileTrack "${spec.tileTrackId}"`);
   }
-  // Sample the curve at the cell's midpoint t for stable platform placement
-  // regardless of which port the train enters from.
   const tMid = (span.tStart + span.tEnd) / 2;
   const localP = tt.path.getPointAt(tMid);
   const tan = tt.path.getTangentAt(tMid);
-  // Left of the train direction (perpendicular, looking down +Y). Most loops
-  // are CCW so "left" is outside the loop — natural side for passengers.
   const perpX = tan.z;
   const perpZ = -tan.x;
   const trackPos = tt.object3d.position;
   const px = trackPos.x + localP.x + perpX * STATION_LATERAL_OFFSET;
   const pz = trackPos.z + localP.z + perpZ * STATION_LATERAL_OFFSET;
-  // Heading aligns the platform's long axis (local +X) with the track tangent.
-  const heading = Math.atan2(tan.x, tan.z) - Math.PI / 2;
-  return { position: [px, STATION_Y, pz], heading };
+  return {
+    worldPos: [px, STATION_Y, pz],
+    // queueDirection points from the rail toward the platform.
+    queueDir: [perpX, 0, perpZ],
+    tValue: tMid,
+    heading: Math.atan2(tan.x, tan.z) - Math.PI / 2,
+  };
+}
+
+function stationPlatformOnTile(
+  spec: SceneEntitySpec,
+  registry: ReadonlyMap<string, Entity>,
+): { position: THREE.Vector3Tuple; heading: number } {
+  const s = tileCellSample(spec, registry);
+  return { position: s.worldPos, heading: s.heading };
+}
+
+function stationLoaderOnTile(
+  spec: SceneEntitySpec,
+  registry: ReadonlyMap<string, Entity>,
+): {
+  stationPosition: THREE.Vector3Tuple;
+  stationQueueDirection: THREE.Vector3Tuple;
+  stationT: number;
+  stationId: string;
+  destinationIds: string[];
+} {
+  const s = tileCellSample(spec, registry);
+  return {
+    stationPosition: s.worldPos,
+    stationQueueDirection: s.queueDir,
+    stationT: s.tValue,
+    stationId: spec.id,
+    destinationIds: spec.destinationIds ?? [],
+  };
 }
 
 export function signedSpeed(spec: SceneEntitySpec, fallback: number): number {

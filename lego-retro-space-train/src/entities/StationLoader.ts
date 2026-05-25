@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
-import { StationDef, TrackRoute, getTrackRoute } from '../world/TrackPath';
+import { StationDef, getTrackRoute } from '../world/TrackPath';
 import { MonorailTrain } from './MonorailTrain';
 import { emit } from '../sim/EventBus';
 
@@ -26,8 +26,18 @@ interface OutgoingCrate {
 }
 
 export interface StationLoaderOptions {
+  // Legacy TrackPath mode: look up station by route + stationId.
   routeId?: string;
   stationId?: string;
+  // Direct mode: caller supplies the station definition. Used by the
+  // tile-system manifest builder which derives these from a layout cell.
+  // Takes precedence over routeId/stationId if both supplied.
+  stationPosition?: THREE.Vector3Tuple;
+  stationQueueDirection?: THREE.Vector3Tuple;
+  stationT?: number;
+  /** IDs of other stations this loader can ship cargo to. Used to seed
+   *  initial outgoing crates and pick destinations for redispatch. */
+  destinationIds?: string[];
 }
 
 // Per-station color so destinations are visually identifiable on the crate cap.
@@ -53,7 +63,7 @@ export class StationLoader implements Entity {
 
   private readonly stationT: number;
   private readonly station: StationDef;
-  private readonly route: TrackRoute;
+  private readonly destinations: string[];
   private readonly outgoing: OutgoingCrate[] = [];
   private readonly delivered: DeliveredCrate[] = [];
   private readonly armPivot: THREE.Group;
@@ -66,9 +76,21 @@ export class StationLoader implements Entity {
     private readonly train: MonorailTrain,
     opts: StationLoaderOptions = {},
   ) {
-    this.route = getTrackRoute(opts.routeId);
-    this.station = this.route.stations.find((station) => station.id === opts.stationId)
-      ?? this.route.stations[0]!;
+    if (opts.stationPosition && opts.stationQueueDirection && opts.stationT != null) {
+      this.station = {
+        id: opts.stationId ?? 'station',
+        position: opts.stationPosition,
+        queueDirection: opts.stationQueueDirection,
+        t: opts.stationT,
+      };
+      this.destinations = opts.destinationIds ?? [];
+    } else {
+      const route = getTrackRoute(opts.routeId);
+      this.station = route.stations.find((s) => s.id === opts.stationId) ?? route.stations[0]!;
+      this.destinations = route.stations
+        .filter((s) => s.id !== this.station.id)
+        .map((s) => s.id);
+    }
     this.stationT = this.station.t;
     const built = this.build();
     this.object3d = built.group;
@@ -159,11 +181,10 @@ export class StationLoader implements Entity {
     plaque.castShadow = true;
     g.add(plaque);
 
-    // Seed initial outgoing crates, cycling destinations through the other stations.
-    const others = this.route.stations.filter((s) => s.id !== this.station.id);
-    if (others.length > 0) {
+    // Seed initial outgoing crates, cycling through the configured destinations.
+    if (this.destinations.length > 0) {
       for (let i = 0; i < INITIAL_OUTGOING; i++) {
-        const destinationId = others[i % others.length]!.id;
+        const destinationId = this.destinations[i % this.destinations.length]!;
         const crate = buildCargoCrate(destinationColor(destinationId));
         crate.userData.destinationId = destinationId;
         crate.position.copy(this.outgoingPosition(this.outgoing.length));
@@ -260,9 +281,8 @@ export class StationLoader implements Entity {
   }
 
   private pickNextDestination(): string {
-    const others = this.route.stations.filter((s) => s.id !== this.station.id);
-    if (others.length === 0) return this.station.id;
-    return others[Math.floor(Math.random() * others.length)]!.id;
+    if (this.destinations.length === 0) return this.station.id;
+    return this.destinations[Math.floor(Math.random() * this.destinations.length)]!;
   }
 
   private outgoingPosition(index: number): THREE.Vector3 {
