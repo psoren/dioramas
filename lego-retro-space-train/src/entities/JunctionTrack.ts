@@ -3,6 +3,7 @@ import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
 import { Direction, RAMP_HEIGHT, TILE_SIZE, effectivePorts } from '../world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../world/trackGraph';
+import { TrackLayout } from '../world/trackLayout';
 
 // Visual constants mirror TileTrack so the two entities look consistent.
 const DECK_HALF_WIDTH = 0.45;
@@ -119,32 +120,33 @@ export class JunctionTrack implements Entity {
 
     // --- Station platforms ---
     // Sit the platform perpendicular to the track at the station cell,
-    // on whichever side has free space (the side without an outgoing
-    // edge). Length runs ALONG the track direction so the platform looks
-    // like a real train platform.
+    // long axis aligned with the track. Check BOTH perpendicular sides
+    // and prefer the one without track tiles in adjacent cells (avoids
+    // platforms landing inside a loop on top of other track).
     const platMat = MAT.gray.clone();
+    const layout = this.graph.layout;
     for (const node of this.graph.nodes) {
       if (node.kind !== 'station') continue;
-      // Track tangent at the station: use any incident edge's tangent
-      // at the station's end of the curve.
       const incident = node.edges[0];
       if (!incident) continue;
       const tEnd = incident.from === node ? 0 : 1;
       const tan = incident.curve.getTangentAt(tEnd);
-      // Track-aligned direction (horizontal projection, normalised).
       const trackLen = Math.hypot(tan.x, tan.z) || 1;
       const trackDx = tan.x / trackLen;
       const trackDz = tan.z / trackLen;
-      // Perpendicular (right-hand side of the track direction). For a
-      // station on the inside of a loop both sides have track, but the
-      // platform on EITHER side reads fine — pick the +90° rotation.
-      const perpDx = -trackDz;
-      const perpDz = trackDx;
+      // Quantise the perpendicular to one of the 4 cardinal axes so
+      // we can do grid-cell occupancy checks (track tiles are on a
+      // grid). For a tangent that's not perfectly axial (curve mid-
+      // point), round to the dominant axis.
+      const candA = unitPerp(trackDx, trackDz, +1);
+      const candB = unitPerp(trackDx, trackDz, -1);
+      const sideAFree = sideHasNoTrack(layout, node.gridX, node.gridZ, candA);
+      const sideBFree = sideHasNoTrack(layout, node.gridX, node.gridZ, candB);
+      const chosen = sideAFree ? candA : sideBFree ? candB : candA;
       const offset = TILE_SIZE * 0.7;
-      const px = node.pos.x + perpDx * offset;
+      const px = node.pos.x + chosen[0] * offset;
       const py = node.pos.y;
-      const pz = node.pos.z + perpDz * offset;
-      // Long, narrow slab aligned with the track.
+      const pz = node.pos.z + chosen[1] * offset;
       const platGeo = new THREE.BoxGeometry(TILE_SIZE * 1.8, 0.18, 0.5);
       const plat = new THREE.Mesh(platGeo, platMat);
       plat.position.set(px, py + 0.1, pz);
@@ -152,7 +154,6 @@ export class JunctionTrack implements Entity {
       plat.receiveShadow = true;
       plat.castShadow = true;
       g.add(plat);
-      // Green marker post at the platform centre.
       const marker = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.08, 0.9, 10),
         MAT.greenLED,
@@ -206,6 +207,31 @@ export class JunctionTrack implements Entity {
     }
   }
 
+}
+
+/** Quantise the perpendicular of a track tangent to a unit cardinal
+ *  vector. `side` = +1 for CCW perpendicular, -1 for CW. The perpendicular
+ *  axis is whichever of (-tz, tx) or (tz, -tx) is dominant. */
+function unitPerp(tx: number, tz: number, side: 1 | -1): [number, number] {
+  // CCW perp = (-tz, tx). CW perp = (tz, -tx).
+  const px = side === 1 ? -tz : tz;
+  const pz = side === 1 ? tx : -tx;
+  // Snap to nearest cardinal.
+  if (Math.abs(px) >= Math.abs(pz)) return [Math.sign(px) || 1, 0];
+  return [0, Math.sign(pz) || 1];
+}
+
+/** True if cells (gx + dx, gz + dz) and (gx + 2dx, gz + 2dz) are both
+ *  empty in the layout — i.e. the perpendicular side has room for a
+ *  platform without overlapping another track tile. */
+function sideHasNoTrack(
+  layout: TrackLayout,
+  gx: number,
+  gz: number,
+  side: readonly [number, number],
+): boolean {
+  const [dx, dz] = side;
+  return !layout.get(gx + dx, gz + dz) && !layout.get(gx + 2 * dx, gz + 2 * dz);
 }
 
 function dirToVec(d: Direction): readonly [number, number] {
