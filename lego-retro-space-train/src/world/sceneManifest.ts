@@ -97,6 +97,8 @@ export interface SceneEntitySpec {
   cell?: [number, number];
   /** For stationLoader on a tile track: station IDs to ship cargo to. */
   destinationIds?: string[];
+  /** For tileTrack: explicit rectangle layout in grid coords. */
+  rectangle?: { gx0: number; gz0: number; gx1: number; gz1: number };
 }
 
 export interface BuiltSceneEntity {
@@ -114,8 +116,20 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
   { id: 'earth', kind: 'earth' },
   { id: 'base', kind: 'basePlate' },
   { id: 'command-centre', kind: 'commandCentre' },
-  // Central tile-system track + one train on it.
-  { id: 'main-tile-track', kind: 'tileTrack', position: [0, 0.02, 0] },
+  // Central tile-system track: 4×4 cells centred on the baseplate origin.
+  {
+    id: 'main-tile-track',
+    kind: 'tileTrack',
+    position: [0, 0.02, 0],
+    rectangle: { gx0: -2, gz0: -2, gx1: 2, gz1: 2 },
+  },
+  // A second, smaller loop out on the moon to validate the multi-track case.
+  {
+    id: 'moon-tile-track',
+    kind: 'tileTrack',
+    position: [13, 0.02, -13],
+    rectangle: { gx0: -1, gz0: -1, gx1: 1, gz1: 1 },
+  },
   {
     id: 'main-tile-train',
     kind: 'monorailTrain',
@@ -146,6 +160,16 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
     cell: [0, 2],
     targetId: 'main-tile-train',
     destinationIds: ['station-north'],
+  },
+  // Second train: runs the smaller moon loop.
+  {
+    id: 'moon-tile-train',
+    kind: 'monorailTrain',
+    tileTrackId: 'moon-tile-track',
+    speed: 0.06,
+    t: 0.0,
+    cars: 0,
+    carSpacing: 0,
   },
 ];
 
@@ -264,9 +288,7 @@ export function buildSceneEntity(
     case 'tileTrack':
       return new TileTrack({
         position: spec.position ?? [0, 0.02, 0],
-        // 4×4 cell loop centred on origin → spans roughly -4.8..+4.8 in
-        // both X and Z with TILE_SIZE=2.4. Surrounds the command centre.
-        rectangle: { gx0: -2, gz0: -2, gx1: 2, gz1: 2 },
+        rectangle: spec.rectangle ?? { gx0: -2, gz0: -2, gx1: 2, gz1: 2 },
       });
     case 'astronautPedestrian':
       // Pedestrians wander an annulus around the baseplate on the moon
