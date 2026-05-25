@@ -15,6 +15,9 @@ export interface PathVehicleOptions {
  * Base class for any vehicle that follows a closed curve.
  * Subclasses build their mesh with forward direction along +X.
  */
+/** Default smoothing rate. Higher = punchier accel/decel; lower = mellower. */
+const DEFAULT_ACCEL = 0.10; // path-units/sec per sec
+
 export abstract class PathVehicle implements Entity {
   readonly object3d: THREE.Group;
   protected readonly path: THREE.CatmullRomCurve3;
@@ -22,6 +25,10 @@ export abstract class PathVehicle implements Entity {
   y: number;
   laps = 0;
   private cruiseSpeed: number;
+  /** Current eased speed — lerps toward target each frame. */
+  private currentSpeed = 0;
+  /** Magnitude of speed change per second (independent of sign). */
+  private readonly accel: number;
   private readonly holds = new Set<string>();
 
   constructor(opts: PathVehicleOptions) {
@@ -29,15 +36,23 @@ export abstract class PathVehicle implements Entity {
     this.cruiseSpeed = opts.speed ?? 0.06;
     this.t = wrap01(opts.t ?? 0);
     this.y = opts.y ?? 0;
+    this.accel = DEFAULT_ACCEL;
     this.object3d = this.build(opts);
   }
 
+  /** Current eased speed (after holds / acceleration). */
   get speed(): number {
-    return this.holds.size > 0 ? 0 : this.cruiseSpeed;
+    return this.currentSpeed;
   }
 
   set speed(value: number) {
     this.cruiseSpeed = value;
+  }
+
+  /** Target speed accounting for holds. Subclasses can read this if they
+   *  want to e.g. only spin wheels at cruise. */
+  get targetSpeed(): number {
+    return this.holds.size > 0 ? 0 : this.cruiseSpeed;
   }
 
   hold(reason: string): void {
@@ -56,10 +71,17 @@ export abstract class PathVehicle implements Entity {
   protected abstract build(opts: PathVehicleOptions): THREE.Group;
 
   update(dt: number): void {
+    // Ease toward target speed (signed lerp, so reverse / hold transitions
+    // are smooth instead of snapping).
+    const target = this.targetSpeed;
+    const delta = target - this.currentSpeed;
+    const step = Math.sign(delta) * Math.min(Math.abs(delta), this.accel * dt);
+    this.currentSpeed += step;
+
     const prev = this.t;
-    this.t = wrap01(this.t + this.speed * dt);
-    if (dt > 0 && this.speed >= 0 && this.t < prev) this.laps++;
-    if (dt > 0 && this.speed < 0 && this.t > prev) this.laps++;
+    this.t = wrap01(this.t + this.currentSpeed * dt);
+    if (dt > 0 && this.currentSpeed >= 0 && this.t < prev) this.laps++;
+    if (dt > 0 && this.currentSpeed < 0 && this.t > prev) this.laps++;
     placeOnPath(this.object3d, this.path, this.t, this.y);
   }
 }
