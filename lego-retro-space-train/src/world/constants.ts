@@ -7,9 +7,10 @@ export const TRACK_CORNER_R_OUT = 1.1;
 export const TRACK_CORNER_R_IN = 0.6;
 export const TRACK_Y = 0.10;
 
-// Base plate (blue plate). Bigger network: was 7.8 (16-stud plate); now 12 (24-stud-ish).
-export const BASE_SIZE = 12.0;
-export const BASE_CORNER_R = 0.8;
+// Base plate (blue plate). Scaled up after the great strip-down so the
+// plate fills the visible scene and dominates the moon backdrop.
+export const BASE_SIZE = 28.0;
+export const BASE_CORNER_R = 1.4;
 
 // Standard Y-offset for set pieces sitting on the baseplate — a hair above
 // the plate surface so they don't z-fight. Use this in place of bare 0.08s.

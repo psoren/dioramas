@@ -37,7 +37,6 @@ import { MeteorShower } from '../entities/MeteorShower';
 import { trackPath, crossRouteCrossings } from './TrackPath';
 import { roadPath } from './RoadPath';
 import { getTrackRoute } from './TrackPath';
-import { GROUND_OBJECT_Y, LAUNCHPAD_GROUND_Y } from './constants';
 
 export type EntityKind =
   | 'basePlate'
@@ -127,150 +126,11 @@ export interface BuiltSceneEntity {
 }
 
 export const defaultSceneManifest: SceneEntitySpec[] = [
-  // === Settlement infrastructure ===
+  // === Cleared-back scene: just the moon surface + a much bigger blue
+  // baseplate. Entity builder cases stay in this file so we can rebuild
+  // on top of the empty stage. ===
   { id: 'moon', kind: 'moonSurface' },
-  { id: 'earth', kind: 'earth' },
-  { id: 'meteor-shower', kind: 'meteorShower' },
   { id: 'base', kind: 'basePlate' },
-  { id: 'road-surface', kind: 'roadRing' },
-  { id: 'command-centre', kind: 'commandCentre' },
-  { id: 'rear-elevator', kind: 'elevator' },
-  // Stationary astronauts at the elevator and a station spot.
-  { id: 'station-astronaut', kind: 'microAstronaut', position: [-6.0, 0.0, 6.0], heading: Math.PI },
-  { id: 'elevator-astronaut', kind: 'microAstronaut', position: [-7.0, 0.0, -3.5], heading: Math.PI / 2 },
-  // Retro space sets — ground pieces only. The flying spaceships
-  // (mtron, space-police, galaxy-explorer flyover, blacktron cruiser)
-  // were removed at the user's request.
-  { id: 'micro-rocket-launchpad', kind: 'microRocketLaunchpad', position: [8.0, LAUNCHPAD_GROUND_Y, -8.0], heading: 0 },
-  { id: 'ice-planet-defender', kind: 'icePlanetDefender', position: [-8.0, LAUNCHPAD_GROUND_Y, 8.0], heading: -Math.PI / 2 },
-  { id: 'galaxy-rover', kind: 'galaxyExplorerRover', position: [-2.5, GROUND_OBJECT_Y, 8.5], heading: 0 },
-  { id: 'robot-helper', kind: 'robotHelper', position: [2.5, GROUND_OBJECT_Y, 8.5], heading: Math.PI / 2 },
-  { id: 'blacktron-outpost', kind: 'blacktronOutpost', position: [-2.5, GROUND_OBJECT_Y, -8.5], heading: Math.PI / 2 },
-  // Road trucks (use roadPath, independent of tile system).
-  {
-    id: 'truck-a',
-    kind: 'spaceTruck',
-    speed: 0.035,
-    t: 0.08,
-    cargoStops: [
-      { t: 0.25, action: 'load',   label: 'north depot' },
-      { t: 0.75, action: 'unload', label: 'south depot' },
-    ],
-  },
-  { id: 'truck-b', kind: 'spaceTruck', speed: 0.022, t: 0.5 },
-  { id: 'depot-north', kind: 'containerDepot', position: [0, 0.05, 13], heading: 0 },
-  { id: 'depot-south', kind: 'containerDepot', position: [0, 0.05, -13], heading: Math.PI },
-  // Solar farm + wandering pedestrians. Apartment removed; pedestrians
-  // wander without a home target.
-  { id: 'solar-farm-1', kind: 'solarFarm', position: [16, 0.02, -10], heading: 0 },
-  { id: 'pedestrian-1', kind: 'astronautPedestrian', t: 0.0 },
-  { id: 'pedestrian-2', kind: 'astronautPedestrian', t: 0.12 },
-  { id: 'pedestrian-3', kind: 'astronautPedestrian', t: 0.27 },
-  { id: 'pedestrian-4', kind: 'astronautPedestrian', t: 0.34 },
-  { id: 'pedestrian-5', kind: 'astronautPedestrian', t: 0.42 },
-  { id: 'pedestrian-6', kind: 'astronautPedestrian', t: 0.05 },
-  // Central tile-system track: 4×4 cells centred on the baseplate origin.
-  {
-    id: 'main-tile-track',
-    kind: 'tileTrack',
-    position: [0, 0.02, 0],
-    rectangle: { gx0: -2, gz0: -2, gx1: 2, gz1: 2 },
-  },
-  // A second loop on the moon — random extruded shape. Seed comes from
-  // the URL (?seed=N), so the "🎲 Random track" button reloads with a
-  // fresh seed.
-  {
-    id: 'moon-tile-track',
-    kind: 'tileTrack',
-    position: [10, 0.02, -16],
-    extruded: { iterations: 4 },
-    seed: urlSeedOrRandom(),
-  },
-  // Ramp-bridge demo — a rectangle that ramps up + crosses + ramps down.
-  // Verifies the new ramp tile pipeline (Y-continuity, elevated straight).
-  {
-    id: 'ramp-bridge-track',
-    kind: 'tileTrack',
-    position: [-16, 0.02, -14],
-    rampBridge: { w: 6, h: 3 },
-  },
-  {
-    id: 'main-tile-train',
-    kind: 'monorailTrain',
-    tileTrackId: 'main-tile-track',
-    speed: 0.045,
-    t: 0.0,
-    cars: 1,
-    carSpacing: 0.05,
-    telemetry: true,
-  },
-  // Two tile-cell-based stations on opposite edges of the loop. Position
-  // and heading are derived entirely from the tile-track's layout.
-  { id: 'station-north', kind: 'stationPlatform', tileTrackId: 'main-tile-track', cell: [0, -2] },
-  { id: 'station-south', kind: 'stationPlatform', tileTrackId: 'main-tile-track', cell: [0, 2] },
-  // Loaders connecting each station to the train; cargo cycles back and forth.
-  {
-    id: 'loader-north',
-    kind: 'stationLoader',
-    tileTrackId: 'main-tile-track',
-    cell: [0, -2],
-    targetId: 'main-tile-train',
-    destinationIds: ['station-south'],
-  },
-  {
-    id: 'loader-south',
-    kind: 'stationLoader',
-    tileTrackId: 'main-tile-track',
-    cell: [0, 2],
-    targetId: 'main-tile-train',
-    destinationIds: ['station-north'],
-  },
-  // Second train: runs the smaller moon loop.
-  {
-    id: 'moon-tile-train',
-    kind: 'monorailTrain',
-    tileTrackId: 'moon-tile-track',
-    speed: 0.06,
-    t: 0.0,
-    cars: 0,
-    carSpacing: 0,
-  },
-  // Express track: a wide flat rectangle crossing through the main loop's
-  // east and west sides. Sharing cells (-2,-1) and (2,-1) with main, plus
-  // (-2,1) and (2,1) on its S edge.
-  {
-    id: 'express-tile-track',
-    kind: 'tileTrack',
-    position: [0, 0.02, 0],
-    rectangle: { gx0: -4, gz0: -1, gx1: 4, gz1: 1 },
-  },
-  {
-    id: 'express-tile-train',
-    kind: 'monorailTrain',
-    tileTrackId: 'express-tile-track',
-    speed: 0.055,
-    t: 0.25,
-    cars: 0,
-    carSpacing: 0,
-  },
-  // Intersection at the cell shared between main's W edge and express's N edge.
-  // Main train has higher priority — express yields when main is in the cell.
-  {
-    id: 'crossing-w-mid',
-    kind: 'tileTrackCrossing',
-    crossingTrains: [
-      { trainId: 'main-tile-train',    trackId: 'main-tile-track',    cell: [-2, -1], priority: 2 },
-      { trainId: 'express-tile-train', trackId: 'express-tile-track', cell: [-2, -1], priority: 1 },
-    ],
-  },
-  {
-    id: 'crossing-e-mid',
-    kind: 'tileTrackCrossing',
-    crossingTrains: [
-      { trainId: 'main-tile-train',    trackId: 'main-tile-track',    cell: [2, -1], priority: 2 },
-      { trainId: 'express-tile-train', trackId: 'express-tile-track', cell: [2, -1], priority: 1 },
-    ],
-  },
 ];
 
 export function buildSceneEntity(
@@ -520,15 +380,3 @@ export function hasTelemetry(entity: Entity): entity is Entity & { speed: number
   return 'speed' in entity && 'laps' in entity;
 }
 
-/** Pull `?seed=N` from the URL for the random-layout button, falling back to
- *  a fresh random seed each page-load. */
-function urlSeedOrRandom(): number {
-  if (typeof window === 'undefined') return 0;
-  const url = new URL(window.location.href);
-  const seedParam = url.searchParams.get('seed');
-  if (seedParam !== null) {
-    const n = parseInt(seedParam, 10);
-    if (!Number.isNaN(n)) return n;
-  }
-  return Math.floor(Math.random() * 1_000_000);
-}

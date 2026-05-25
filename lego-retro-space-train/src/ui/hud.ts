@@ -1,5 +1,4 @@
 import { Sim } from '../sim/Sim';
-import { subscribe } from '../sim/EventBus';
 
 export interface VehicleTelemetry {
   speed: number;
@@ -42,13 +41,8 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       </div>
       <div class="sep"></div>
       <button class="btn" id="btn-reset">Reset View</button>
-      <button class="btn" id="btn-randomize">🎲 Random track</button>
     </div>
 
-    <div class="panel" id="event-feed">
-      <div class="eyebrow">EVENT FEED</div>
-      <ul id="event-list"></ul>
-    </div>
   `;
 
   const btnPlay = document.getElementById('btn-play') as HTMLButtonElement;
@@ -67,15 +61,6 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
 
   btnReset.addEventListener('click', () => sim.orbit.reset());
 
-  const btnRandomize = document.getElementById('btn-randomize') as HTMLButtonElement;
-  btnRandomize.addEventListener('click', () => {
-    // Random seed gets baked into the URL so reloads/share-links are
-    // reproducible. The manifest reads it for the moon-tile-track.
-    const url = new URL(window.location.href);
-    url.searchParams.set('seed', String(Math.floor(Math.random() * 1_000_000)));
-    window.location.assign(url.toString());
-  });
-
   speed.addEventListener('input', () => {
     sim.speedMultiplier = parseFloat(speed.value);
   });
@@ -88,18 +73,4 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     statLaps.textContent = String(v.laps);
   }, 100);
 
-  // Event feed: append sim events as <li>; cap length at 12.
-  const eventList = document.getElementById('event-list') as HTMLUListElement;
-  const MAX_EVENTS = 12;
-  subscribe((event) => {
-    const li = document.createElement('li');
-    li.textContent = event.message;
-    li.className = `evt evt-${event.kind}`;
-    eventList.appendChild(li);
-    while (eventList.children.length > MAX_EVENTS) {
-      eventList.removeChild(eventList.firstChild!);
-    }
-    // Fade-in
-    requestAnimationFrame(() => li.classList.add('shown'));
-  });
 }
