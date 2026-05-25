@@ -161,6 +161,27 @@ describe('extruded random shape generator', () => {
     const { start, startEntry } = generateExtrudedLoop(layout, rng, 5);
     expect(() => layout.buildLoop(start, startEntry)).not.toThrow();
   });
+
+  it('never produces a self-intersecting layout (across 200 seeds)', () => {
+    // Regression: previously the generator could roll a bump that grew
+    // into an existing path, causing two cells to coincide and the
+    // polygon walker to install incompatible tiles. The fix is reject-
+    // and-retry on self-intersection; this stress-tests it.
+    for (let seed = 1; seed <= 200; seed++) {
+      const layout = new TrackLayout();
+      let s = seed;
+      const rng = () => {
+        s = (s * 16807) % 2147483647;
+        return s / 2147483647;
+      };
+      const { start, startEntry } = generateExtrudedLoop(layout, rng, 6);
+      // If the layout self-intersected, two cells would have the same
+      // (gx, gz) but only the second placement wins — buildLoop's
+      // entry-port mismatch check would fire on the first walked cell
+      // whose tile got overwritten.
+      expect(() => layout.buildLoop(start, startEntry), `seed ${seed}`).not.toThrow();
+    }
+  });
 });
 
 describe('ramp bridge loop', () => {

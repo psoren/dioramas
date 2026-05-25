@@ -44,8 +44,10 @@ export interface TileTrackOptions {
   template?: string;
   /** Raw walk-steps for a custom loop shape. */
   walkSteps?: ReadonlyArray<WalkStep>;
-  /** Use the extrude-based random shape generator. */
-  extruded?: { iterations?: number };
+  /** Use the extrude-based random shape generator. `bridges` (default 0)
+   *  asks the generator to insert that many ramp-up + elevated + ramp-down
+   *  bridge sections on straight runs. Single height only. */
+  extruded?: { iterations?: number; bridges?: number };
   /** Use the ramp-bridge loop template (rectangle with a raised middle). */
   rampBridge?: { w: number; h: number };
   /** Seed for the random generator (used by template/extruded/random modes). */
@@ -79,7 +81,12 @@ export class TileTrack implements Entity {
       ({ start, startEntry } = placeWalkLoop(this.layout, tpl.steps));
     } else if (opts.extruded) {
       const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
-      ({ start, startEntry } = generateExtrudedLoop(this.layout, rng, opts.extruded.iterations ?? 3));
+      ({ start, startEntry } = generateExtrudedLoop(
+        this.layout,
+        rng,
+        opts.extruded.iterations ?? 3,
+        opts.extruded.bridges ?? 0,
+      ));
     } else if (opts.rampBridge) {
       ({ start, startEntry } = placeRampBridgeLoop(this.layout, opts.rampBridge.w, opts.rampBridge.h));
     } else if (opts.randomBounds) {

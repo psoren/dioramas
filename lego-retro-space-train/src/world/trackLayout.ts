@@ -434,7 +434,21 @@ export function extrudeRandomSegment(
   minSegmentLen = 3,
   maxBumpDepth = 3,
 ): WalkStep[] | null {
-  // Need count ≥ 3 so k1 + width + k2 = count with each ≥ 1.
+  // Retry a few times — a single random pick may produce a self-
+  // intersecting bump that we have to reject.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const candidate = attemptExtrusion(steps, rng, minSegmentLen, maxBumpDepth);
+    if (candidate && isSelfAvoiding(candidate)) return candidate;
+  }
+  return null;
+}
+
+function attemptExtrusion(
+  steps: ReadonlyArray<WalkStep>,
+  rng: () => number,
+  minSegmentLen: number,
+  maxBumpDepth: number,
+): WalkStep[] | null {
   const eligible: number[] = [];
   for (let i = 0; i < steps.length; i++) {
     if (steps[i]![1] >= minSegmentLen) eligible.push(i);
@@ -442,9 +456,7 @@ export function extrudeRandomSegment(
   if (eligible.length === 0) return null;
   const idx = eligible[Math.floor(rng() * eligible.length)]!;
   const [dir, count] = steps[idx]!;
-  // Closure-preserving split: the bump's horizontal span (`width`) eats
-  // into the original count so net displacement in `dir` stays at `count`.
-  // count = k1 + width + k2  with each side ≥ 1.
+  // Closure-preserving split: count = k1 + width + k2  with each ≥ 1.
   const k1 = 1 + Math.floor(rng() * (count - 2));
   const remaining = count - k1 - 1;
   const k2 = 1 + Math.floor(rng() * remaining);
@@ -463,18 +475,49 @@ export function extrudeRandomSegment(
   ];
 }
 
+/** True iff walking `steps` from origin never revisits a cell (except for
+ *  the final return to origin that closes the loop). Used to reject
+ *  extrusion candidates whose bump collides with the existing path. */
+function isSelfAvoiding(steps: ReadonlyArray<WalkStep>): boolean {
+  let totalSteps = 0;
+  for (const [, count] of steps) totalSteps += count;
+  let cx = 0;
+  let cz = 0;
+  const seen = new Set<string>([`${cx},${cz}`]);
+  let i = 0;
+  for (const [dir, count] of steps) {
+    const [vx, vz] = dirVector(dir);
+    for (let j = 0; j < count; j++) {
+      cx += vx;
+      cz += vz;
+      i++;
+      // The very last step closes the loop by returning to (0,0); that
+      // duplicate is expected and skipped.
+      if (i === totalSteps) continue;
+      const key = `${cx},${cz}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+    }
+  }
+  return true;
+}
+
 /**
  * Build a randomly-shaped loop by starting from a random small rectangle
  * and applying N extrusions. Each extrusion preserves closure, so the
  * result is always a valid closed perimeter — without the closure-bias
  * problems of pure random walks.
+ *
+ * If `bridges > 0`, also tries to insert that many ramp bridges on
+ * straight cell runs ≥ 3. Each bridge climbs RAMP_HEIGHT and immediately
+ * descends back to ground — no stacking, max height stays at RAMP_HEIGHT.
  */
 export function generateExtrudedLoop(
   layout: TrackLayout,
   rng: () => number = Math.random,
   iterations = 3,
+  bridges = 0,
 ): { start: PlacedTile; startEntry: Direction; steps: ReadonlyArray<WalkStep> } {
-  // Random base rectangle 3-5 wide, 2-4 tall.
   const w = 3 + Math.floor(rng() * 3);
   const h = 2 + Math.floor(rng() * 3);
   let steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
@@ -482,8 +525,99 @@ export function generateExtrudedLoop(
     const next = extrudeRandomSegment(steps, rng);
     if (next) steps = next;
   }
-  const { start, startEntry } = placeWalkLoop(layout, steps);
+  const overrides = buildBridgeOverrides(steps, rng, bridges);
+  const { start, startEntry } = placeWalkLoop(layout, steps, [0, 0], overrides);
   return { start, startEntry, steps };
+}
+
+// --- Bridge insertion --------------------------------------------------
+
+/** Rotation lookup for ramp tiles by walking direction. RAMP_NS base has
+ *  N=low (y=0) and S=high (y=RAMP_HEIGHT); these rotations align that
+ *  pattern with each cardinal walk so entry-port Y is always low. */
+const RAMP_UP_ROT: Record<Direction, Rotation> = { E: 1, W: 3, N: 2, S: 0 };
+/** Same trick but with the high port at the entry side. */
+const RAMP_DOWN_ROT: Record<Direction, Rotation> = { E: 3, W: 1, N: 0, S: 2 };
+/** ELEVATED_STRAIGHT_NS rotated to match the walk direction. */
+const ELEVATED_ROT: Record<Direction, Rotation> = { E: 1, W: 1, N: 0, S: 0 };
+
+/**
+ * Walk the cell list and find runs of ≥ `minLen` consecutive cells going
+ * in the same direction. Each run reports its cardinal direction + the
+ * exact cell sequence.
+ */
+function findStraightRuns(
+  cells: ReadonlyArray<readonly [number, number]>,
+  minLen: number,
+): Array<{ dir: Direction; cells: Array<[number, number]>; startIdx: number }> {
+  const runs: Array<{ dir: Direction; cells: Array<[number, number]>; startIdx: number }> = [];
+  const n = cells.length;
+  if (n < minLen) return runs;
+  let runDir: Direction | null = null;
+  let runStart = 0;
+  for (let i = 0; i < n; i++) {
+    const [cx, cz] = cells[i]!;
+    const [nx, nz] = cells[(i + 1) % n]!;
+    const dir = dirFromTo(cx, cz, nx, nz);
+    if (dir === runDir) continue;
+    // Direction changed at i — close the previous run if long enough.
+    if (runDir !== null) {
+      const len = i - runStart + 1;
+      if (len >= minLen) {
+        const slice: Array<[number, number]> = [];
+        for (let j = runStart; j <= i; j++) slice.push([cells[j]![0], cells[j]![1]]);
+        runs.push({ dir: runDir, cells: slice, startIdx: runStart });
+      }
+    }
+    runDir = dir;
+    runStart = i;
+  }
+  return runs;
+}
+
+/**
+ * Try to insert `bridgeCount` ramp bridges on long straight runs of the
+ * cell path. Each bridge takes 3 consecutive cells: RAMP up, ELEVATED,
+ * RAMP down. Runs are claimed greedily so two bridges never overlap.
+ */
+function buildBridgeOverrides(
+  steps: ReadonlyArray<WalkStep>,
+  rng: () => number,
+  bridgeCount: number,
+): PolygonOverrides | undefined {
+  if (bridgeCount <= 0) return undefined;
+  // Expand steps to cell list — mirrors placeWalkLoop's logic.
+  let cx = 0, cz = 0;
+  const cells: Array<[number, number]> = [[cx, cz]];
+  for (const [dir, count] of steps) {
+    const [vx, vz] = dirVector(dir);
+    for (let i = 0; i < count; i++) {
+      cx += vx;
+      cz += vz;
+      cells.push([cx, cz]);
+    }
+  }
+  cells.pop();
+  const runs = findStraightRuns(cells, 3);
+  if (runs.length === 0) return undefined;
+  // Shuffle runs so bridges land at random straights.
+  for (let i = runs.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [runs[i], runs[j]] = [runs[j]!, runs[i]!];
+  }
+  const overrides = new Map<string, { def: TrackTileDef; rotation: Rotation }>();
+  let placed = 0;
+  for (const run of runs) {
+    if (placed >= bridgeCount) break;
+    if (run.cells.length < 3) continue;
+    // Place the bridge at the start of the run (could also randomise offset).
+    const [up, elev, down] = run.cells;
+    overrides.set(`${up![0]},${up![1]}`,     { def: RAMP_NS,              rotation: RAMP_UP_ROT[run.dir] });
+    overrides.set(`${elev![0]},${elev![1]}`, { def: ELEVATED_STRAIGHT_NS, rotation: ELEVATED_ROT[run.dir] });
+    overrides.set(`${down![0]},${down![1]}`, { def: RAMP_NS,              rotation: RAMP_DOWN_ROT[run.dir] });
+    placed++;
+  }
+  return overrides;
 }
 
 // ---------------------------------------------------------------------------

@@ -98,7 +98,7 @@ function randomizeTrack(): void {
   if (randomTrack) sim.remove(randomTrack);
   randomTrack = sim.add(new TileTrack({
     position: [0, 0.02, 0],
-    extruded: { iterations: 4 },
+    extruded: { iterations: 4, bridges: 1 },
     seed: Math.floor(Math.random() * 1_000_000),
   }));
 }
