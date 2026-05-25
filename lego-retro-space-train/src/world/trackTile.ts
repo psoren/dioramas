@@ -106,7 +106,16 @@ export const RAMP_NS: TrackTileDef = {
     const pts: THREE.Vector3[] = [];
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
-      pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+      // XZ linear (the ramp's footprint is a straight line through the
+      // cell). Y uses smoothstep so the slope is zero at both ends —
+      // ramp eases out of the flat ground and into the elevated section
+      // without a visible kink at the seam.
+      const easedY = t * t * (3 - 2 * t);
+      pts.push(new THREE.Vector3(
+        a.x + (b.x - a.x) * t,
+        a.y + (b.y - a.y) * easedY,
+        a.z + (b.z - a.z) * t,
+      ));
     }
     return pts;
   },
