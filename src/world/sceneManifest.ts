@@ -36,7 +36,6 @@ import { MeteorShower } from '../entities/MeteorShower';
 import { trackPath, crossRouteCrossings } from './TrackPath';
 import { roadPath } from './RoadPath';
 import { getTrackRoute } from './TrackPath';
-import { GROUND_OBJECT_Y, LAUNCHPAD_GROUND_Y } from './constants';
 
 export type EntityKind =
   | 'basePlate'
@@ -103,60 +102,17 @@ export interface BuiltSceneEntity {
 }
 
 export const defaultSceneManifest: SceneEntitySpec[] = [
+  // === Stripped-down scene during the tile-system migration ===
+  // Everything except essentials is gone so the new tile track is the
+  // sole point of focus. We add things back through the new system as
+  // the migration proceeds. See NOTES_BEFORE_MIGRATION.md for what was
+  // here previously.
   { id: 'moon', kind: 'moonSurface' },
   { id: 'earth', kind: 'earth' },
-  { id: 'meteor-shower', kind: 'meteorShower' },
   { id: 'base', kind: 'basePlate' },
-  { id: 'road-surface', kind: 'roadRing' },
-  // === MIGRATION: old track network removed. See NOTES_BEFORE_MIGRATION.md ===
-  // The seven hand-built TrackPath routes + 7 trains + 14 stations + 14
-  // loaders + 2 cross-route intersections were stripped here. They'll be
-  // rebuilt on top of the new tile system, one piece at a time. The first
-  // new-system render is `main-tile-track` below.
   { id: 'command-centre', kind: 'commandCentre' },
-  // Buildings spread across the open ground between/around the loops.
-  // Flying entities sit at fixed altitudes; ground entities use the shared
-  // GROUND_OBJECT_Y so they line up consistently.
-  { id: 'micro-rocket-launchpad', kind: 'microRocketLaunchpad', position: [8.0, LAUNCHPAD_GROUND_Y, -8.0], heading: 0 },
-  { id: 'mtron-magnetizer', kind: 'mtronMagnetizer', position: [-8.0, 3.5, -8.0], heading: Math.PI / 2 },
-  { id: 'ice-planet-defender', kind: 'icePlanetDefender', position: [-8.0, LAUNCHPAD_GROUND_Y, 8.0], heading: -Math.PI / 2 },
-  { id: 'space-police-cruiser', kind: 'spacePoliceCruiser', position: [10.5, 3.0, 0.0], heading: Math.PI },
-  { id: 'galaxy-explorer-flyover', kind: 'galaxyExplorerShip', position: [8.0, 4.0, 8.0], heading: -Math.PI / 4 },
-  { id: 'galaxy-rover', kind: 'galaxyExplorerRover', position: [-2.5, GROUND_OBJECT_Y, 8.5], heading: 0 },
-  { id: 'robot-helper', kind: 'robotHelper', position: [2.5, GROUND_OBJECT_Y, 8.5], heading: Math.PI / 2 },
-  { id: 'blacktron-cruiser', kind: 'blacktronCruiser', position: [0.0, 4.5, -10.5], heading: -Math.PI / 2 },
-  { id: 'blacktron-outpost', kind: 'blacktronOutpost', position: [-2.5, GROUND_OBJECT_Y, -8.5], heading: Math.PI / 2 },
-  { id: 'rear-elevator', kind: 'elevator' },
-  { id: 'station-astronaut', kind: 'microAstronaut', position: [-6.0, 0.0, 6.0], heading: Math.PI },
-  { id: 'elevator-astronaut', kind: 'microAstronaut', position: [-7.0, 0.0, -3.5], heading: Math.PI / 2 },
-  // Road trucks share a single direction so they can't head-on collide.
-  // truck-a is a cargo runner shuttling between the two container depots —
-  // loads at the north depot (t≈0.25), unloads at the south depot (t≈0.75).
-  {
-    id: 'truck-a',
-    kind: 'spaceTruck',
-    speed: 0.035,
-    t: 0.08,
-    cargoStops: [
-      { t: 0.25, action: 'load',   label: 'north depot' },
-      { t: 0.75, action: 'unload', label: 'south depot' },
-    ],
-  },
-  { id: 'truck-b', kind: 'spaceTruck', speed: 0.022, t: 0.5 },
-  // Container depots either side of the road. Trucks pick up at north,
-  // deliver to south.
-  { id: 'depot-north', kind: 'containerDepot', position: [0, 0.05, 13], heading: 0 },
-  { id: 'depot-south', kind: 'containerDepot', position: [0, 0.05, -13], heading: Math.PI },
-  // First track rendered with the new tile system — a 4×4 rectangle loop
-  // centred on the baseplate, surrounding the command centre.
-  {
-    id: 'main-tile-track',
-    kind: 'tileTrack',
-    position: [0, 0.02, 0],
-  },
-  // First train on the new system. References `main-tile-track` via
-  // `tileTrackId` instead of a routeId; the manifest builder grabs the
-  // tile-track entity's `.path` and feeds it to MonorailTrain.
+  // Central tile-system track + one train on it.
+  { id: 'main-tile-track', kind: 'tileTrack', position: [0, 0.02, 0] },
   {
     id: 'main-tile-train',
     kind: 'monorailTrain',
@@ -167,19 +123,6 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
     carSpacing: 0.05,
     telemetry: true,
   },
-  // Astronaut apartment on the moon surface — pedestrians use it as "home".
-  // Door faces the baseplate (heading rotates +X toward origin).
-  { id: 'apartment-1', kind: 'apartmentBuilding', position: [-16, 0.02, 10], heading: Math.PI * 0.75 },
-  // Solar farm on the opposite side. Panels track the sun through the day/night cycle.
-  { id: 'solar-farm-1', kind: 'solarFarm', position: [16, 0.02, -10], heading: 0 },
-  // Pedestrian astronauts wandering the moon surface around the baseplate.
-  // `t` is used as a per-instance speed jitter (see manifest builder).
-  { id: 'pedestrian-1', kind: 'astronautPedestrian', t: 0.0 },
-  { id: 'pedestrian-2', kind: 'astronautPedestrian', t: 0.12 },
-  { id: 'pedestrian-3', kind: 'astronautPedestrian', t: 0.27 },
-  { id: 'pedestrian-4', kind: 'astronautPedestrian', t: 0.34 },
-  { id: 'pedestrian-5', kind: 'astronautPedestrian', t: 0.42 },
-  { id: 'pedestrian-6', kind: 'astronautPedestrian', t: 0.05 },
 ];
 
 export function buildSceneEntity(
