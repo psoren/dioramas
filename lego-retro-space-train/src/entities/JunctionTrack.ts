@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
-import { TILE_SIZE } from '../world/trackTile';
+import { Direction, RAMP_HEIGHT, TILE_SIZE, effectivePorts } from '../world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../world/trackGraph';
 
 // Visual constants mirror TileTrack so the two entities look consistent.
@@ -18,9 +18,10 @@ const TIE_DEPTH = 0.16;
 const TIE_HEIGHT = 0.03;
 const TIE_Y = 0.055;
 
-// Per-edge sample count; longer edges get more samples for smoothness.
-function samplesForEdge(length: number): number {
-  return Math.max(32, Math.ceil(length * 8));
+function samplesForCurve(length: number): number {
+  // Bumped from ×8 to ×24 — strips were visibly polygonal on the corner
+  // arcs of the rectangle. Strip geometry is cheap; smooth wins.
+  return Math.max(64, Math.ceil(length * 24));
 }
 
 export interface JunctionTrackOptions {
@@ -29,9 +30,11 @@ export interface JunctionTrackOptions {
 }
 
 /**
- * Renders a TrackGraph: pads for every tile, deck+rails+conductor+ties
- * along every edge, small visual markers for junction and station nodes.
- * The graph itself is exposed so trains can route over it.
+ * Renders a TrackGraph. Rails for in-between cells come from each edge's
+ * renderCurve; rails through junction cells come from the tile's own
+ * samplePath (one curve per pair of edges incident at the junction), so
+ * TEEs render as wye arcs and CROSSes as straight crossings rather than
+ * 90° T-stubs cut into the edge curve.
  */
 export class JunctionTrack implements Entity {
   readonly object3d: THREE.Group;
@@ -45,82 +48,100 @@ export class JunctionTrack implements Entity {
 
   private build(): THREE.Group {
     const g = new THREE.Group();
+    const deckMat = MAT.gray.clone();
+    deckMat.side = THREE.DoubleSide;
+    const railMat = MAT.grayDark.clone();
 
     // --- Cell pads for every tile in the underlying layout ---
+    // Elevated cells get their pad raised; ramp cells get a pad midway up.
     const padGeo = new THREE.BoxGeometry(TILE_SIZE * 0.96, 0.012, TILE_SIZE * 0.96);
     const padMat = MAT.grayDark.clone();
     padMat.transparent = true;
     padMat.opacity = 0.35;
     for (const tile of this.graph.layout.tiles()) {
       const pad = new THREE.Mesh(padGeo, padMat);
-      pad.position.set(tile.gridX * TILE_SIZE, 0.012, tile.gridZ * TILE_SIZE);
+      const padY =
+        tile.def.kind === 'elevated-straight-ns' ? RAMP_HEIGHT + 0.012 :
+        tile.def.kind === 'ramp-ns' ? RAMP_HEIGHT / 2 + 0.012 :
+        0.012;
+      pad.position.set(tile.gridX * TILE_SIZE, padY, tile.gridZ * TILE_SIZE);
       pad.receiveShadow = true;
       g.add(pad);
     }
 
-    // --- Per-edge deck + rails + conductor + ties ---
-    const deckMat = MAT.gray.clone();
-    deckMat.side = THREE.DoubleSide;
-    const railMat = MAT.grayDark.clone();
+    // --- Bridge pillars under ELEVATED cells (and a shorter post under the
+    //     midpoint of each RAMP_NS so the slope doesn't float free). ---
+    const pillarMat = MAT.grayDark;
+    for (const tile of this.graph.layout.tiles()) {
+      if (tile.def.kind !== 'elevated-straight-ns' && tile.def.kind !== 'ramp-ns') continue;
+      const isElevated = tile.def.kind === 'elevated-straight-ns';
+      const height = isElevated ? RAMP_HEIGHT : RAMP_HEIGHT / 2;
+      const pillarGeo = new THREE.BoxGeometry(0.32, height, 0.32);
+      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+      pillar.position.set(tile.gridX * TILE_SIZE, height / 2, tile.gridZ * TILE_SIZE);
+      pillar.castShadow = true;
+      pillar.receiveShadow = true;
+      g.add(pillar);
+    }
+
+    // --- Edges: one continuous strip per edge ---
+    // Each edge curve covers junction-A-centre → junction-B-centre,
+    // including bezier turnouts at branch ports. Two main-pair edges
+    // through the same junction render overlapping straight halves that
+    // form a continuous main rail; a branch edge renders a single
+    // smoothly-curving turnout in the same junction cell.
     for (const edge of this.graph.edges) {
-      const samples = samplesForEdge(edge.length);
-      const deck = new THREE.Mesh(
-        buildStripGeometry(edge.curve, samples, DECK_HALF_WIDTH, 0, DECK_Y),
-        deckMat,
-      );
-      deck.receiveShadow = true;
-      g.add(deck);
-      for (const lateral of [-RAIL_LATERAL, RAIL_LATERAL]) {
-        const rail = new THREE.Mesh(
-          buildStripGeometry(edge.curve, samples, RAIL_HALF_WIDTH, lateral, RAIL_Y),
-          railMat,
-        );
-        rail.castShadow = true;
-        g.add(rail);
-      }
-      const conductor = new THREE.Mesh(
-        buildStripGeometry(edge.curve, samples, CONDUCTOR_HALF_WIDTH, 0, CONDUCTOR_Y),
-        MAT.yellow,
-      );
-      g.add(conductor);
-      // Ties (sleepers) spaced along the edge curve.
-      const tieCount = Math.max(1, Math.floor(edge.length / TIE_INTERVAL));
-      const tieGeo = new THREE.BoxGeometry(TIE_LENGTH, TIE_HEIGHT, TIE_DEPTH);
-      for (let i = 0; i < tieCount; i++) {
-        const t = (i + 0.5) / tieCount;
-        const p = edge.curve.getPointAt(t);
-        const tan = edge.curve.getTangentAt(t);
-        const tie = new THREE.Mesh(tieGeo, railMat);
-        tie.position.set(p.x, TIE_Y, p.z);
-        tie.rotation.y = Math.atan2(tan.x, tan.z) - Math.PI / 2;
-        tie.receiveShadow = true;
-        g.add(tie);
-      }
+      this.drawTrackAlongCurve(g, edge.curve, deckMat, railMat);
     }
 
-    // --- Junction markers (small yellow column where switches sit) ---
-    const jctGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.6, 12);
+    // --- 1-edge nodes (spur ends): draw the dead-end half of the tile so
+    //     the cell isn't half-rendered. ---
     for (const node of this.graph.nodes) {
-      if (node.kind !== 'junction') continue;
-      const post = new THREE.Mesh(jctGeo, MAT.yellow);
-      post.position.set(node.pos.x, 0.3, node.pos.z);
-      post.castShadow = true;
-      g.add(post);
+      if (node.edges.length !== 1) continue;
+      const tile = this.graph.layout.get(node.gridX, node.gridZ);
+      if (!tile) continue;
+      const ports = effectivePorts(tile);
+      const onlyEdge = node.edges[0]!;
+      const activePort = onlyEdge.from === node ? onlyEdge.fromExitPort : onlyEdge.toEntryPort;
+      const deadPort = ports.find((p) => p !== activePort);
+      if (!deadPort) continue;
+      // Render a straight half-tile from cell centre to the dead-end port
+      // boundary, so the spur visually terminates with a stub.
+      const cx = node.gridX * TILE_SIZE;
+      const cz = node.gridZ * TILE_SIZE;
+      const half = TILE_SIZE / 2;
+      const [dx, dz] = dirToVec(deadPort);
+      const pts = [
+        new THREE.Vector3(cx, node.pos.y, cz),
+        new THREE.Vector3(cx + dx * half, node.pos.y, cz + dz * half),
+      ];
+      const stub = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+      this.drawTrackAlongCurve(g, stub, deckMat, railMat);
+      // Buffer stop: a small red box at the dead-end boundary.
+      const stopGeo = new THREE.BoxGeometry(0.7, 0.18, 0.18);
+      const stopMat = MAT.grayDark.clone();
+      stopMat.color.set('#aa2222');
+      const stop = new THREE.Mesh(stopGeo, stopMat);
+      stop.position.set(
+        cx + dx * half * 0.9,
+        node.pos.y + 0.1,
+        cz + dz * half * 0.9,
+      );
+      stop.rotation.y = Math.atan2(dx, dz);
+      stop.castShadow = true;
+      g.add(stop);
     }
 
-    // --- Station platforms (low slab + label-ish bumper) ---
+    // --- Station platforms (slab next to the track + green marker) ---
     const platGeo = new THREE.BoxGeometry(TILE_SIZE * 1.6, 0.18, 0.6);
     const platMat = MAT.gray.clone();
     for (const node of this.graph.nodes) {
       if (node.kind !== 'station') continue;
-      // Place the platform to the SIDE of the track cell, not on top.
-      // For simplicity, offset by 1 cell in -Z direction (north of station).
       const plat = new THREE.Mesh(platGeo, platMat);
       plat.position.set(node.pos.x, 0.1, node.pos.z - TILE_SIZE * 0.8);
       plat.receiveShadow = true;
       plat.castShadow = true;
       g.add(plat);
-      // Small green column marking the station node.
       const marker = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.08, 0.9, 10),
         MAT.greenLED,
@@ -131,6 +152,57 @@ export class JunctionTrack implements Entity {
     }
 
     return g;
+  }
+
+  private drawTrackAlongCurve(
+    g: THREE.Group,
+    curve: THREE.CatmullRomCurve3,
+    deckMat: THREE.Material,
+    railMat: THREE.Material,
+  ): void {
+    const length = curve.getLength();
+    const samples = samplesForCurve(length);
+    const deck = new THREE.Mesh(
+      buildStripGeometry(curve, samples, DECK_HALF_WIDTH, 0, DECK_Y),
+      deckMat,
+    );
+    deck.receiveShadow = true;
+    g.add(deck);
+    for (const lateral of [-RAIL_LATERAL, RAIL_LATERAL]) {
+      const rail = new THREE.Mesh(
+        buildStripGeometry(curve, samples, RAIL_HALF_WIDTH, lateral, RAIL_Y),
+        railMat,
+      );
+      rail.castShadow = true;
+      g.add(rail);
+    }
+    const conductor = new THREE.Mesh(
+      buildStripGeometry(curve, samples, CONDUCTOR_HALF_WIDTH, 0, CONDUCTOR_Y),
+      MAT.yellow,
+    );
+    g.add(conductor);
+    const tieCount = Math.max(1, Math.floor(length / TIE_INTERVAL));
+    const tieGeo = new THREE.BoxGeometry(TIE_LENGTH, TIE_HEIGHT, TIE_DEPTH);
+    for (let i = 0; i < tieCount; i++) {
+      const t = (i + 0.5) / tieCount;
+      const p = curve.getPointAt(t);
+      const tan = curve.getTangentAt(t);
+      const tie = new THREE.Mesh(tieGeo, railMat);
+      tie.position.set(p.x, p.y + TIE_Y, p.z);
+      tie.rotation.y = Math.atan2(tan.x, tan.z) - Math.PI / 2;
+      tie.receiveShadow = true;
+      g.add(tie);
+    }
+  }
+
+}
+
+function dirToVec(d: Direction): readonly [number, number] {
+  switch (d) {
+    case 'N': return [0, -1];
+    case 'E': return [1, 0];
+    case 'S': return [0, 1];
+    case 'W': return [-1, 0];
   }
 }
 
@@ -156,8 +228,11 @@ function buildStripGeometry(
     const cz = p.z + lz * lateral;
     const ux = lx * halfWidth;
     const uz = lz * halfWidth;
-    positions.push(cx + ux, y, cz + uz);
-    positions.push(cx - ux, y, cz - uz);
+    // Strip follows the curve's own Y so ramps climb visibly; `y` adds
+    // the constant offset (rail height above deck, etc.).
+    const py = p.y + y;
+    positions.push(cx + ux, py, cz + uz);
+    positions.push(cx - ux, py, cz - uz);
   }
   for (let i = 0; i < samples; i++) {
     const a = i * 2;
@@ -174,5 +249,4 @@ function buildStripGeometry(
   return geo;
 }
 
-// Re-export for callers that don't import directly.
 export type { GraphEdge, GraphNode, TrackGraph };

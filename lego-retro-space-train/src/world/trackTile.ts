@@ -153,32 +153,54 @@ export const CURVE_NE: TrackTileDef = {
   },
 };
 
-// --- T-intersection (N, E, S) -- visual only; default through-path is N-S
+// --- T-intersection (N, E, S) — Y-junction shape ------------------------
+// Main route is straight N↔S. The two branch routes (N↔E and S↔E) are
+// quarter arcs centred at the cell's NE and SE corners respectively, so
+// the branch is tangent to the main line at the N or S port and curves
+// smoothly out to the E port — like a real railroad turnout, not a
+// 90° kink. (The two arcs overlap the main straight near the N/S ports
+// but render harmlessly at the same y-level.)
 export const TEE_NES: TrackTileDef = {
   kind: 'tee-nes',
   basePorts: ['N', 'E', 'S'],
   samplePath(from, to, samples) {
     requirePair(this, from, to);
-    // Straight through for N <-> S; otherwise a quarter arc between the
-    // requested pair. Approximation: just straight line between the ports
-    // (passing through tile centre). Good enough for vehicles routing
-    // through; visual aesthetic comes from the rendered deck shape.
-    const a = portPos(from);
-    const b = portPos(to);
-    const mid = new THREE.Vector3(0, 0, 0);
+    const pair = `${from}${to}`;
     const pts: THREE.Vector3[] = [];
+    if (pair === 'NS' || pair === 'SN') {
+      // Main: straight line through centre.
+      const a = portPos(from);
+      const b = portPos(to);
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples;
+        pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+      }
+      return pts;
+    }
+    if (pair === 'NE' || pair === 'EN') {
+      // Arc from N port (0, -HALF) to E port (HALF, 0), centre at NE corner
+      // (HALF, 0, -HALF). t=0 at N port, t=1 at E port.
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples;
+        const theta = t * Math.PI / 2;
+        const x = HALF - HALF * Math.cos(theta);
+        const z = -HALF + HALF * Math.sin(theta);
+        pts.push(new THREE.Vector3(x, 0, z));
+      }
+      if (from === 'E') pts.reverse();
+      return pts;
+    }
+    // pair === 'ES' || 'SE'
+    // Arc from S port (0, HALF) to E port (HALF, 0), centre at SE corner
+    // (HALF, 0, HALF). t=0 at S port, t=1 at E port.
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
-      // Quadratic bezier through tile centre for any non-NS pair so the
-      // curve isn't a sharp kink.
-      if ((from === 'N' && to === 'S') || (from === 'S' && to === 'N')) {
-        pts.push(new THREE.Vector3().lerpVectors(a, b, t));
-      } else {
-        const ab = new THREE.Vector3().lerpVectors(a, mid, t);
-        const bc = new THREE.Vector3().lerpVectors(mid, b, t);
-        pts.push(new THREE.Vector3().lerpVectors(ab, bc, t));
-      }
+      const theta = t * Math.PI / 2;
+      const x = HALF - HALF * Math.cos(theta);
+      const z = HALF - HALF * Math.sin(theta);
+      pts.push(new THREE.Vector3(x, 0, z));
     }
+    if (from === 'E') pts.reverse();
     return pts;
   },
 };

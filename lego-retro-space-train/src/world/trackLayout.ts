@@ -818,11 +818,11 @@ export function generateTwistedLoop(
 /** Rotation lookup for ramp tiles by walking direction. RAMP_NS base has
  *  N=low (y=0) and S=high (y=RAMP_HEIGHT); these rotations align that
  *  pattern with each cardinal walk so entry-port Y is always low. */
-const RAMP_UP_ROT: Record<Direction, Rotation> = { E: 1, W: 3, N: 2, S: 0 };
+export const RAMP_UP_ROT: Record<Direction, Rotation> = { E: 1, W: 3, N: 2, S: 0 };
 /** Same trick but with the high port at the entry side. */
-const RAMP_DOWN_ROT: Record<Direction, Rotation> = { E: 3, W: 1, N: 0, S: 2 };
+export const RAMP_DOWN_ROT: Record<Direction, Rotation> = { E: 3, W: 1, N: 0, S: 2 };
 /** ELEVATED_STRAIGHT_NS rotated to match the walk direction. */
-const ELEVATED_ROT: Record<Direction, Rotation> = { E: 1, W: 1, N: 0, S: 0 };
+export const ELEVATED_ROT: Record<Direction, Rotation> = { E: 1, W: 1, N: 0, S: 0 };
 
 /**
  * Walk the cell list and find runs of ≥ `minLen` consecutive *straight*
@@ -832,7 +832,7 @@ const ELEVATED_ROT: Record<Direction, Rotation> = { E: 1, W: 1, N: 0, S: 0 };
  * cells (where entry != exit) are explicitly excluded from runs because
  * placing a ramp tile on a corner produces wrong-orientation ports.
  */
-function findStraightRuns(
+export function findStraightRuns(
   cells: ReadonlyArray<readonly [number, number]>,
   minLen: number,
 ): Array<{ dir: Direction; cells: Array<[number, number]>; startIdx: number }> {

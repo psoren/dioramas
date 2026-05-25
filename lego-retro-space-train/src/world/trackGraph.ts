@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   Direction,
+  RAMP_HEIGHT,
   TILE_SIZE,
   dirVector,
   effectivePorts,
@@ -38,13 +39,21 @@ export interface GraphEdge {
   id: string;
   from: GraphNode;
   to: GraphNode;
-  /** Centerline curve. Always parameterised from `from` (t=0) to `to` (t=1). */
+  /** Single continuous centerline curve, FROM (t=0) → TO (t=1). Includes
+   *  the half-tile at each junction (straight for main ports, a smooth
+   *  bezier for branch / lone ports — so a TEE renders as one straight
+   *  rail through plus one curving turnout, both as parts of edge curves
+   *  rather than overlapping per-junction strips). */
   curve: THREE.CatmullRomCurve3;
   /** Cached length so we don't recompute every frame. */
   length: number;
   /** In-between tile cells (excludes the endpoint junctions). Edges between
    *  adjacent junctions have an empty list. */
   midCells: ReadonlyArray<readonly [number, number]>;
+  /** Effective ports used at each end (out of the from junction, into the
+   *  to junction). */
+  fromExitPort: Direction;
+  toEntryPort: Direction;
 }
 
 export class TrackGraph {
@@ -59,10 +68,19 @@ export class TrackGraph {
   }
 
   addNode(kind: NodeKind, gridX: number, gridZ: number, label?: string): GraphNode {
+    // Determine cell-centre Y from the underlying tile. Stations placed on
+    // elevated tiles sit at RAMP_HEIGHT; ramp-centres are midway. Anything
+    // else (flat tiles, no tile yet) is at Y=0.
+    const tile = this.layout.get(gridX, gridZ);
+    let y = 0;
+    if (tile) {
+      if (tile.def.kind === 'elevated-straight-ns') y = RAMP_HEIGHT;
+      else if (tile.def.kind === 'ramp-ns') y = RAMP_HEIGHT / 2;
+    }
     const node: GraphNode = {
       id: `${kind}-${this.nodeCounter++}`,
       kind,
-      pos: new THREE.Vector3(gridX * TILE_SIZE, 0, gridZ * TILE_SIZE),
+      pos: new THREE.Vector3(gridX * TILE_SIZE, y, gridZ * TILE_SIZE),
       gridX,
       gridZ,
       edges: [],
@@ -77,6 +95,8 @@ export class TrackGraph {
     to: GraphNode,
     curve: THREE.CatmullRomCurve3,
     midCells: ReadonlyArray<readonly [number, number]>,
+    fromExitPort: Direction,
+    toEntryPort: Direction,
   ): GraphEdge {
     const edge: GraphEdge = {
       id: `e${this.edgeCounter++}`,
@@ -85,6 +105,8 @@ export class TrackGraph {
       curve,
       length: curve.getLength(),
       midCells,
+      fromExitPort,
+      toEntryPort,
     };
     from.edges.push(edge);
     to.edges.push(edge);
@@ -166,12 +188,18 @@ export function buildGraphFromLayout(
       const key = `${node.gridX},${node.gridZ}:${port}`;
       if (visitedPort.has(key)) continue;
       visitedPort.add(key);
+      // Dead-end check: if the cell beyond this port has no tile, this port
+      // doesn't lead to anything (e.g. a station at the end of a spur). Skip
+      // — the port is a buffer/terminator. The node ends up with one fewer
+      // incident edge.
+      const [pdx, pdz] = dirVector(port);
+      if (!layout.get(node.gridX + pdx, node.gridZ + pdz)) continue;
       const traced = traceEdgeFromPort(layout, node.gridX, node.gridZ, port, junctionSet);
       visitedPort.add(`${traced.toGx},${traced.toGz}:${traced.toEntry}`);
       const toNode = graph.nodeAt(traced.toGx, traced.toGz);
       if (!toNode) throw new Error(`edge endpoint (${traced.toGx},${traced.toGz}) is not a registered node`);
       const curve = buildEdgeCurve(layout, node, port, toNode, traced.toEntry, traced.midCells);
-      graph.addEdge(node, toNode, curve, traced.midCells);
+      graph.addEdge(node, toNode, curve, traced.midCells, port, traced.toEntry);
     }
   }
   return graph;
@@ -218,9 +246,14 @@ function traceEdgeFromPort(
   throw new Error('traceEdge did not terminate in 512 steps');
 }
 
-/** Build the curve from one junction's centre through the midCells to the
- *  other junction's centre. Junction tiles contribute a half-tile straight
- *  each end; in-between tiles contribute their full centerline sample. */
+/** Build a single continuous curve from one junction's centre through
+ *  all mid cells to the other junction's centre. Junction halves are
+ *  straight when the port has its opposite in the tile's port set (a
+ *  "main" port — TEE main pair, CROSS, station-on-straight). For a "lone"
+ *  port (no opposite in the set — TEE branch), the half-tile is a smooth
+ *  cubic bezier tangent to the main axis at the centre and tangent to
+ *  the port direction at the boundary. This makes a TEE render as a
+ *  realistic turnout (main straight + one curving diverging rail). */
 function buildEdgeCurve(
   layout: TrackLayout,
   from: GraphNode,
@@ -229,26 +262,16 @@ function buildEdgeCurve(
   entryPort: Direction,
   midCells: ReadonlyArray<readonly [number, number]>,
 ): THREE.CatmullRomCurve3 {
-  const SAMPLES_PER_TILE = 12;
+  const SAMPLES_PER_TILE = 20;
   const points: THREE.Vector3[] = [];
 
-  // Half-tile from `from` centre out to the cell boundary in exitPort dir.
-  const fromCenter = new THREE.Vector3(from.gridX * TILE_SIZE, 0, from.gridZ * TILE_SIZE);
-  const [fdx, fdz] = dirVector(exitPort);
-  const fromBoundary = new THREE.Vector3(
-    fromCenter.x + (fdx * TILE_SIZE) / 2,
-    0,
-    fromCenter.z + (fdz * TILE_SIZE) / 2,
-  );
-  points.push(fromCenter.clone());
-  points.push(fromBoundary);
+  // From-junction half-tile (centre → boundary).
+  const fromTile = layout.get(from.gridX, from.gridZ);
+  if (!fromTile) throw new Error(`from-junction (${from.gridX},${from.gridZ}) missing tile`);
+  appendJunctionHalf(points, fromTile, from, exitPort, to, /*startAtCenter=*/ true);
 
-  // Walk midCells with directional info reconstructed from the geometry.
-  // First entry direction is opposite(exitPort).
+  // Mid cells.
   let entry = opposite(exitPort);
-  let prevGx = from.gridX + fdx;
-  let prevGz = from.gridZ + fdz;
-  void prevGx; void prevGz;
   for (let i = 0; i < midCells.length; i++) {
     const [gx, gz] = midCells[i]!;
     const tile = layout.get(gx, gz);
@@ -256,31 +279,91 @@ function buildEdgeCurve(
     const ports = effectivePorts(tile);
     const exit = ports[0] === entry ? ports[1]! : ports[0]!;
     const seg = sampleWorldPath(tile, entry, exit, SAMPLES_PER_TILE);
-    // Skip the first sample of each tile — it duplicates the previous tile's
-    // last sample (or the from-boundary for tile 0). Drop the last sample of
-    // each tile too so the next tile's first sample isn't duplicated either,
-    // EXCEPT for the very last midcell where we want the boundary point.
-    for (let k = 1; k < seg.length - 1; k++) points.push(seg[k]!);
-    if (i === midCells.length - 1) points.push(seg[seg.length - 1]!);
+    // Skip the first sample of each midcell — it duplicates the previous
+    // segment's last sample (either the from-half's boundary or the
+    // previous midcell's last sample).
+    for (let k = 1; k < seg.length; k++) points.push(seg[k]!);
     entry = opposite(exit);
   }
 
-  // Half-tile from `to` cell boundary in entryPort dir to centre.
-  const toCenter = new THREE.Vector3(to.gridX * TILE_SIZE, 0, to.gridZ * TILE_SIZE);
-  const [tdx, tdz] = dirVector(entryPort);
-  const toBoundary = new THREE.Vector3(
-    toCenter.x + (tdx * TILE_SIZE) / 2,
-    0,
-    toCenter.z + (tdz * TILE_SIZE) / 2,
-  );
-  // If midCells was empty, fromBoundary == toBoundary (same seam between
-  // adjacent junctions); avoid pushing duplicate.
-  if (midCells.length === 0) {
-    points.push(toCenter);
-  } else {
-    points.push(toBoundary);
-    points.push(toCenter);
-  }
+  // To-junction half-tile (boundary → centre). Built centre-to-boundary then
+  // reversed, so the bezier tangent calculation uses the same orientation.
+  const toTile = layout.get(to.gridX, to.gridZ);
+  if (!toTile) throw new Error(`to-junction (${to.gridX},${to.gridZ}) missing tile`);
+  const headLen = points.length;
+  appendJunctionHalf(points, toTile, to, entryPort, from, /*startAtCenter=*/ true);
+  // Reverse only the just-appended chunk so it runs boundary→centre. Drop
+  // its first point (boundary) since it duplicates the last mid-cell sample
+  // (or the from-half boundary if there are no mid cells).
+  const tail = points.splice(headLen);
+  tail.reverse();
+  // tail now starts at boundary, ends at centre. Drop boundary if it
+  // duplicates the previous point.
+  const prev = points[points.length - 1];
+  if (prev && prev.distanceTo(tail[0]!) < 1e-6) tail.shift();
+  points.push(...tail);
 
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
+}
+
+/** Append samples from cell centre out to a port boundary. Straight for
+ *  main ports, cubic bezier for lone ports. */
+function appendJunctionHalf(
+  points: THREE.Vector3[],
+  tile: { gridX: number; gridZ: number; def: { kind: string }; rotation: number } & { def: any },
+  node: GraphNode,
+  port: Direction,
+  otherNode: GraphNode,
+  startAtCenter: boolean,
+): void {
+  void startAtCenter;
+  const cellY = node.pos.y;
+  const cellCenter = new THREE.Vector3(tile.gridX * TILE_SIZE, cellY, tile.gridZ * TILE_SIZE);
+  const [dx, dz] = dirVector(port);
+  const boundary = new THREE.Vector3(
+    cellCenter.x + (dx * TILE_SIZE) / 2,
+    cellY,
+    cellCenter.z + (dz * TILE_SIZE) / 2,
+  );
+  const ports = effectivePorts(tile as never);
+  const isLone = !ports.includes(opposite(port));
+  const N = isLone ? 20 : 6;
+  if (!isLone) {
+    // Straight: linear interpolation, centre → boundary.
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      points.push(new THREE.Vector3(
+        cellCenter.x + (boundary.x - cellCenter.x) * t,
+        cellY,
+        cellCenter.z + (boundary.z - cellCenter.z) * t,
+      ));
+    }
+    return;
+  }
+  // Bezier: tangent at centre points toward the other junction (so two
+  // joined edges through the same junction form one continuous main rail),
+  // tangent at boundary points out along the port direction.
+  const toward = new THREE.Vector3().subVectors(otherNode.pos, node.pos);
+  toward.y = 0;
+  const tlen = toward.length() || 1;
+  toward.divideScalar(tlen);
+  const t1 = TILE_SIZE * 0.32;
+  const c1 = new THREE.Vector3(
+    cellCenter.x + toward.x * t1,
+    cellY,
+    cellCenter.z + toward.z * t1,
+  );
+  const t2 = TILE_SIZE * 0.32;
+  const c2 = new THREE.Vector3(
+    boundary.x - dx * t2,
+    cellY,
+    boundary.z - dz * t2,
+  );
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const u = 1 - t;
+    const x = u*u*u*cellCenter.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*boundary.x;
+    const z = u*u*u*cellCenter.z + 3*u*u*t*c1.z + 3*u*t*t*c2.z + t*t*t*boundary.z;
+    points.push(new THREE.Vector3(x, cellY, z));
+  }
 }

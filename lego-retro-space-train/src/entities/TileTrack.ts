@@ -179,7 +179,7 @@ export class TileTrack implements Entity {
       const p = this.path.getPointAt(t);
       const tan = this.path.getTangentAt(t);
       const tie = new THREE.Mesh(tieGeo, railMat);
-      tie.position.set(p.x, TIE_Y, p.z);
+      tie.position.set(p.x, p.y + TIE_Y, p.z);
       tie.rotation.y = Math.atan2(tan.x, tan.z) - Math.PI / 2;
       tie.receiveShadow = true;
       g.add(tie);
@@ -216,8 +216,11 @@ function buildStripGeometry(
     const cz = p.z + lz * lateral;
     const ux = lx * halfWidth;
     const uz = lz * halfWidth;
-    positions.push(cx + ux, y, cz + uz);
-    positions.push(cx - ux, y, cz - uz);
+    // Strip follows the curve's own Y so ramps climb visibly; `y` adds
+    // the constant offset (rail height above deck, etc.).
+    const py = p.y + y;
+    positions.push(cx + ux, py, cz + uz);
+    positions.push(cx - ux, py, cz - uz);
   }
   for (let i = 0; i < samples; i++) {
     const a = i * 2;

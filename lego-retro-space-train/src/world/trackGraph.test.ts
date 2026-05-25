@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { TrackLayout, placePolygonLoop } from './trackLayout';
 import { TrackGraph, buildGraphFromLayout } from './trackGraph';
-import { generatePassingSiding } from './trackGraphGenerators';
+import { generatePassingSiding, generateRandomGraphTrack } from './trackGraphGenerators';
 import { TEE_NES, STRAIGHT_NS, CURVE_NE, Direction, TrackTileDef, Rotation } from './trackTile';
 
 describe('TrackGraph.shortestPath', () => {
@@ -35,9 +35,9 @@ describe('TrackGraph.shortestPath', () => {
     const c = g.addNode('station', 2, 0);
     // Stub curves — shortestPath doesn't care about geometry.
     const stubCurve = makeStubCurve();
-    g.addEdge(a, b, stubCurve, []);
-    g.addEdge(b, c, stubCurve, []);
-    g.addEdge(a, c, stubCurve, []);
+    g.addEdge(a, b, stubCurve, [], 'E', 'W');
+    g.addEdge(b, c, stubCurve, [], 'E', 'W');
+    g.addEdge(a, c, stubCurve, [], 'E', 'W');
     const path = g.shortestPath(a, c);
     expect(path).not.toBeNull();
     expect(path!.length).toBe(1);
@@ -78,6 +78,55 @@ describe('buildGraphFromLayout', () => {
   });
 });
 
+describe('elevated passing siding', () => {
+  it('places RAMP_NS + ELEVATED_STRAIGHT_NS + RAMP_NS on the branch', () => {
+    // The elevated branch should have RAMP-up + N ELEVATED + RAMP-down on
+    // the interior cells, with flat corners at each end. Regression catches
+    // anyone forgetting to keep the corners flat (would break Y at the
+    // TEE seam).
+    let s = 3;
+    const rng = () => {
+      s = (s * 16807) % 2147483647;
+      return s / 2147483647;
+    };
+    const { graph } = generatePassingSiding(rng, { elevatedBranch: true });
+    const ramps = graph.layout.tiles().filter((t) => t.def.kind === 'ramp-ns');
+    const elev = graph.layout.tiles().filter((t) => t.def.kind === 'elevated-straight-ns');
+    expect(ramps.length).toBe(2);
+    expect(elev.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Beta node Y is RAMP_HEIGHT when the branch is elevated', () => {
+    let s = 11;
+    const rng = () => {
+      s = (s * 16807) % 2147483647;
+      return s / 2147483647;
+    };
+    const { stations } = generatePassingSiding(rng, { elevatedBranch: true });
+    const beta = stations.find((n) => n.label === 'Beta')!;
+    expect(beta.pos.y).toBeGreaterThan(0.5); // ≈ RAMP_HEIGHT = 1
+  });
+
+  it('every edge curve Y stays ≥ 0 (no overshoot below ground)', () => {
+    // Regression: previously the curve dipped to ~-0.08 because the node Y
+    // was hardcoded to 0 even when sitting on an elevated tile. Sampling
+    // many points catches any future re-introduction of that bug.
+    let s = 7;
+    const rng = () => {
+      s = (s * 16807) % 2147483647;
+      return s / 2147483647;
+    };
+    const { graph } = generatePassingSiding(rng, { elevatedBranch: true });
+    for (const e of graph.edges) {
+      for (let i = 0; i <= 30; i++) {
+        const t = i / 30;
+        const y = e.curve.getPointAt(t).y;
+        expect(y, `${e.id} t=${t}`).toBeGreaterThanOrEqual(-0.05);
+      }
+    }
+  });
+});
+
 describe('generatePassingSiding', () => {
   it('produces a graph with 2 junctions + 2 stations and connected paths', () => {
     let s = 7;
@@ -111,6 +160,40 @@ describe('generatePassingSiding', () => {
       // The path is a sequence of unique edges.
       const ids = new Set(path!.map((e) => e.id));
       expect(ids.size).toBe(path!.length);
+    }
+  });
+});
+
+describe('generateRandomGraphTrack', () => {
+  it('produces a valid graph across 100 seeds (no throws, ≥2 stations)', () => {
+    // Regression catch: the random generator finds a long straight run for
+    // the siding, computes branch cells, checks for walk collisions, and
+    // builds a graph. If any seed lands in an unhandled edge case the
+    // generator falls back to the rectangle template — both paths are
+    // acceptable, but neither may throw.
+    for (let seed = 1; seed <= 100; seed++) {
+      let s = seed;
+      const rng = () => {
+        s = (s * 16807) % 2147483647;
+        return s / 2147483647;
+      };
+      const result = generateRandomGraphTrack(rng);
+      expect(result.stations.length, `seed ${seed} stations`).toBeGreaterThanOrEqual(2);
+      // Contract: every track has at least one intersection (TEE or CROSS
+      // tile) and at least one elevated section.
+      const layout = result.graph.layout;
+      const crossTiles = layout.tiles().filter((t) => t.def.kind === 'cross-nesw').length;
+      const teeTiles = layout.tiles().filter((t) => t.def.kind === 'tee-nes').length;
+      expect(crossTiles + teeTiles, `seed ${seed} intersections`).toBeGreaterThanOrEqual(1);
+      const elevTiles = layout.tiles().filter((t) => t.def.kind === 'elevated-straight-ns' || t.def.kind === 'ramp-ns').length;
+      expect(elevTiles, `seed ${seed} elevation`).toBeGreaterThanOrEqual(1);
+      // Every pair of nodes must be reachable.
+      for (const a of result.graph.nodes) {
+        for (const b of result.graph.nodes) {
+          if (a === b) continue;
+          expect(result.graph.shortestPath(a, b), `seed ${seed}: ${a.id} → ${b.id}`).not.toBeNull();
+        }
+      }
     }
   });
 });

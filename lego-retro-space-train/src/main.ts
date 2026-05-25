@@ -11,10 +11,9 @@ import { MonorailTrain } from './entities/MonorailTrain';
 import { SpaceTruck } from './entities/SpaceTruck';
 import { AstronautPedestrian } from './entities/AstronautPedestrian';
 import { ApartmentBuilding } from './entities/ApartmentBuilding';
-import { TileTrack } from './entities/TileTrack';
 import { JunctionTrack } from './entities/JunctionTrack';
 import { GraphTrain } from './entities/GraphTrain';
-import { generatePassingSiding } from './world/trackGraphGenerators';
+import { generateRandomGraphTrack } from './world/trackGraphGenerators';
 import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
 
 window.addEventListener('error', (event) => {
@@ -95,53 +94,31 @@ sim.orbit.onPickMiss = () => inspect.hide();
 const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTelemetry(entity));
 
 // Runtime "🎲 Random track" button — disposes whatever the previous click
-// added (track + maybe a train) and rebuilds. Four flavors:
-//   - figure-8: one parametric self-crossing.
-//   - extruded + ramp bridge: organic shape, no crossings, one elevation.
-//   - twisted: extruded shape + algorithmic twist op for ≥1 crossing.
-//   - passing-siding: graph mode with TEE junctions + a train alternating
-//     between two stations and choosing branches by destination.
+// added (track + train) and rebuilds. Every roll is a passing-siding with
+// an elevated branch, so each track has at least one intersection and one
+// elevated section. (Variety comes from dimension rolls inside the
+// generator + the train's random destination cadence.)
+//
+// The figure-8 / extruded / twisted modes from earlier rolls still live
+// in TileTrack but are no longer wired into the random button.
 const randomEntities: Entity[] = [];
 function randomizeTrack(): void {
   for (const e of randomEntities) sim.remove(e);
   randomEntities.length = 0;
-  const roll = Math.random();
   const seed = Math.floor(Math.random() * 1_000_000);
-  if (roll < 0.25) {
-    randomEntities.push(sim.add(new TileTrack({
-      position: [0, 0.02, 0],
-      randomFigure8: true,
-      seed,
-    })));
-  } else if (roll < 0.5) {
-    randomEntities.push(sim.add(new TileTrack({
-      position: [0, 0.02, 0],
-      extruded: { iterations: 4, bridges: 1 },
-      seed,
-    })));
-  } else if (roll < 0.75) {
-    randomEntities.push(sim.add(new TileTrack({
-      position: [0, 0.02, 0],
-      twisted: { iterations: 2, targetCrossings: 2 },
-      seed,
-    })));
-  } else {
-    // Passing siding: build the graph, mount a JunctionTrack, spawn a train
-    // that alternates between the two stations.
-    const mulberry = mulberry32(seed);
-    const { graph, stations } = generatePassingSiding(mulberry);
-    const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0] }));
-    randomEntities.push(track);
-    if (stations.length >= 2) {
-      const train = sim.add(new GraphTrain({
-        graph,
-        targetCycle: stations,
-        startAt: stations[0],
-      }));
-      // Match the track's container translation so the train sits on the rails.
-      train.object3d.position.y += 0.02;
-      randomEntities.push(train);
-    }
+  const mulberry = mulberry32(seed);
+  const { graph, stations } = generateRandomGraphTrack(mulberry);
+  const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0] }));
+  randomEntities.push(track);
+  if (stations.length >= 2) {
+    const train = sim.add(new GraphTrain({
+      graph,
+      targetCycle: stations,
+      startAt: stations[0],
+    }));
+    // Match the track's container translation so the train sits on the rails.
+    train.object3d.position.y += 0.02;
+    randomEntities.push(train);
   }
 }
 
