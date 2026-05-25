@@ -29,6 +29,9 @@ export interface GraphTrainOptions {
 const DEFAULT_SPEED = 1.6;       // world units / second
 const DEFAULT_DWELL = 1.2;       // seconds
 const ACCEL = 1.8;               // units/s²
+/** Radians/sec the mesh can rotate. With dwell=1.2s and π rad to flip,
+ *  ~3.0 rad/s lets a full 180° turn complete inside the dwell window. */
+const ROTATION_RATE = 3.0;
 
 export class GraphTrain implements Entity {
   readonly object3d: THREE.Group;
@@ -44,9 +47,11 @@ export class GraphTrain implements Entity {
   private currentEdge: GraphEdge;
   private t: number;         // [0, 1] along curve.
   private direction: 1 | -1; // 1: from→to, -1: to→from.
-  /** Plan: the sequence of edges from current position to target. Recomputed
-   *  whenever the target changes or after passing a junction. */
-  private plan: GraphEdge[] = [];
+  /** Eased mesh rotation. Lags `targetRotation` by ROTATION_SMOOTHING so
+   *  the visual rotation doesn't snap 180° when the train reverses at a
+   *  station — it slowly spins around during the dwell. */
+  private meshRotation = 0;
+  // Routing happens per-node in pickBestEdge — no cached plan needed.
 
   constructor(opts: GraphTrainOptions) {
     if (opts.targetCycle.length === 0) throw new Error('GraphTrain needs at least one target');
@@ -82,7 +87,6 @@ export class GraphTrain implements Entity {
         this.t = 1;
         this.direction = -1;
       }
-      this.plan = initialPath.slice(1);
     }
 
     this.object3d = this.build();
@@ -123,7 +127,7 @@ export class GraphTrain implements Entity {
     }
     this.advanceSpeed(dt);
     if (this.currentSpeed <= 0) {
-      this.refreshPose();
+      this.refreshPose(dt);
       return;
     }
     // World-units to advance this frame.
@@ -149,41 +153,45 @@ export class GraphTrain implements Entity {
         }
       }
     }
-    this.refreshPose();
+    this.refreshPose(dt);
   }
 
   /** Called when the train reaches a node. Updates currentEdge/t/direction
    *  for the NEXT edge. Returns false if the train should stop. */
+  /** When multiple edges from a node lead to equally-short paths to the
+   *  current target, pick one randomly so the train doesn't always take
+   *  the same route. (BFS by edge count gives ties; we break them here.) */
+  private pickBestEdge(from: GraphNode, target: GraphNode): GraphEdge | null {
+    // Score each outgoing edge by BFS distance from the OTHER endpoint to
+    // target. Pick among the minimum scores randomly.
+    const scored: Array<{ edge: GraphEdge; dist: number }> = [];
+    for (const e of from.edges) {
+      const other = e.from === from ? e.to : e.from;
+      if (other === target) { scored.push({ edge: e, dist: 0 }); continue; }
+      const path = this.graph.shortestPath(other, target);
+      if (path === null) continue;
+      scored.push({ edge: e, dist: path.length });
+    }
+    if (scored.length === 0) return null;
+    const minDist = Math.min(...scored.map((s) => s.dist));
+    const best = scored.filter((s) => s.dist === minDist);
+    return best[Math.floor(Math.random() * best.length)]!.edge;
+  }
+
   private advanceAtNode(node: GraphNode): boolean {
     // Did we arrive at the current target?
     if (node === this.currentTargetNode()) {
-      // Switch target and dwell briefly. Edge stays "ended" at this node;
-      // we'll roll the next plan when dwell ends. Park at t = endpoint.
       this.t = this.direction === 1 ? 1 : 0;
       this.targetIdx = (this.targetIdx + 1) % this.targetCycle.length;
       this.dwellRemaining = this.dwellTime;
-      // Compute new plan from this node toward new target.
-      this.plan = this.graph.shortestPath(node, this.currentTargetNode()) ?? [];
-      // We'll pick up the next edge after dwell ends naturally (the speed
-      // ramp back up will trigger another advanceAtNode call once we hit
-      // the edge boundary again). To avoid getting stuck, immediately
-      // hop to the first plan edge:
-      if (this.plan.length > 0) {
-        const next = this.plan.shift()!;
-        this.enterEdge(next, node);
-      }
+      const next = this.pickBestEdge(node, this.currentTargetNode());
+      if (next) this.enterEdge(next, node);
       return true;
     }
-    // Not at target — follow plan.
-    if (this.plan.length === 0) {
-      // Recompute plan from this node.
-      this.plan = this.graph.shortestPath(node, this.currentTargetNode()) ?? [];
-    }
-    if (this.plan.length === 0) {
-      // Unreachable. Stop.
-      return false;
-    }
-    const next = this.plan.shift()!;
+    // En route to target — pick the best next edge from here (ties broken
+    // randomly so different traversals exercise different routes).
+    const next = this.pickBestEdge(node, this.currentTargetNode());
+    if (!next) return false;
     this.enterEdge(next, node);
     return true;
   }
@@ -202,7 +210,7 @@ export class GraphTrain implements Entity {
     }
   }
 
-  private refreshPose(): void {
+  private refreshPose(dt: number = 0): void {
     const u = clamp01(this.t);
     const pos = this.currentEdge.curve.getPointAt(u);
     const tan = this.currentEdge.curve.getTangentAt(u);
@@ -210,7 +218,20 @@ export class GraphTrain implements Entity {
     const tx = this.direction === 1 ? tan.x : -tan.x;
     const tz = this.direction === 1 ? tan.z : -tan.z;
     this.object3d.position.set(pos.x, pos.y + this.y, pos.z);
-    this.object3d.rotation.y = Math.atan2(tx, tz) - Math.PI / 2;
+    const targetRot = Math.atan2(tx, tz) - Math.PI / 2;
+    // Ease meshRotation toward targetRot along the shortest angular path.
+    // dt=0 (initial pose) or zero motion → snap to target.
+    if (dt <= 0) {
+      this.meshRotation = targetRot;
+    } else {
+      let delta = targetRot - this.meshRotation;
+      while (delta > Math.PI) delta -= 2 * Math.PI;
+      while (delta < -Math.PI) delta += 2 * Math.PI;
+      const maxStep = ROTATION_RATE * dt;
+      if (Math.abs(delta) <= maxStep) this.meshRotation = targetRot;
+      else this.meshRotation += Math.sign(delta) * maxStep;
+    }
+    this.object3d.rotation.y = this.meshRotation;
   }
 
   /** Inspect helper: current heading-toward target's label. */
