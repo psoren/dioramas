@@ -93,42 +93,23 @@ const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTe
 
 // Runtime "🎲 Random track" button — disposes the previous random track
 // (if any) and adds a fresh extruded TileTrack at the centre of the plate.
-const randomTracks: TileTrack[] = [];
+let randomTrack: TileTrack | undefined;
 function randomizeTrack(): void {
-  for (const t of randomTracks) sim.remove(t);
-  randomTracks.length = 0;
-  const roll = Math.random();
-  // 40% twin-track mode: two perpendicular tracks crossing each other,
-  // producing multiple visual intersections without needing CROSS_NESW
-  // on a single walk. Each track is its own loop.
-  // 35% random figure-8 with randomised lobe sizes (one self-crossing).
-  // 25% extruded random shape with a ramp bridge (no crossings).
-  if (roll < 0.4) {
-    // Twin: a random figure-8 + a perpendicular smaller figure-8 offset
-    // so they actually cross visually.
-    randomTracks.push(sim.add(new TileTrack({
-      position: [0, 0.02, 0],
-      randomFigure8: true,
-      seed: Math.floor(Math.random() * 1_000_000),
-    })));
-    randomTracks.push(sim.add(new TileTrack({
-      position: [0, 0.06, 0],
-      extruded: { iterations: 3 },
-      seed: Math.floor(Math.random() * 1_000_000),
-    })));
-  } else if (roll < 0.75) {
-    randomTracks.push(sim.add(new TileTrack({
-      position: [0, 0.02, 0],
-      randomFigure8: true,
-      seed: Math.floor(Math.random() * 1_000_000),
-    })));
-  } else {
-    randomTracks.push(sim.add(new TileTrack({
-      position: [0, 0.02, 0],
-      extruded: { iterations: 4, bridges: 1 },
-      seed: Math.floor(Math.random() * 1_000_000),
-    })));
-  }
+  if (randomTrack) sim.remove(randomTrack);
+  // Single track per click. Twin-track / stacked-overlap variants were
+  // visual garbage (two decks on top of each other in shared cells —
+  // not real intersections). Real crossings come from CROSS_NESW within
+  // a single self-crossing walk (figure-8).
+  // 50% random parametric figure-8 (one self-crossing, random lobes).
+  // 50% extruded random shape with a ramp bridge.
+  const useFigure8 = Math.random() < 0.5;
+  randomTrack = sim.add(new TileTrack({
+    position: [0, 0.02, 0],
+    ...(useFigure8
+      ? { randomFigure8: true }
+      : { extruded: { iterations: 4, bridges: 1 } }),
+    seed: Math.floor(Math.random() * 1_000_000),
+  }));
 }
 
 // ----- UI -----
