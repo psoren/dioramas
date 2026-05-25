@@ -6,8 +6,12 @@ import {
   TrackLayout,
   LoopResult,
   TileSpan,
+  WalkStep,
+  LOOP_TEMPLATES,
   generateRectangleLoop,
   generateRandomRectangleLoop,
+  generateTemplateLoop,
+  placeWalkLoop,
 } from '../world/trackLayout';
 
 // See DESIGN.md → "Track tile language" for the visual conventions used
@@ -34,7 +38,11 @@ export interface TileTrackOptions {
   rectangle?: { gx0: number; gz0: number; gx1: number; gz1: number };
   /** Bounds for procedural generation. Ignored if `rectangle` is given. */
   randomBounds?: { gx0: number; gz0: number; gx1: number; gz1: number };
-  /** Seed for the random generator. */
+  /** Named template (one of LOOP_TEMPLATES). */
+  template?: string;
+  /** Raw walk-steps for a custom loop shape. */
+  walkSteps?: ReadonlyArray<WalkStep>;
+  /** Seed for the random generator (used when none of the above is set). */
   seed?: number;
 }
 
@@ -53,16 +61,26 @@ export class TileTrack implements Entity {
   readonly loop: LoopResult;
 
   constructor(opts: TileTrackOptions = {}) {
+    let start, startEntry;
     if (opts.rectangle) {
       const r = opts.rectangle;
-      const { start, startEntry } = generateRectangleLoop(this.layout, r.gx0, r.gz0, r.gx1, r.gz1);
-      this.loop = this.layout.buildLoop(start, startEntry);
-    } else {
-      const bounds = opts.randomBounds ?? { gx0: -3, gz0: -2, gx1: 3, gz1: 2 };
+      ({ start, startEntry } = generateRectangleLoop(this.layout, r.gx0, r.gz0, r.gx1, r.gz1));
+    } else if (opts.walkSteps) {
+      ({ start, startEntry } = placeWalkLoop(this.layout, opts.walkSteps));
+    } else if (opts.template) {
+      const tpl = LOOP_TEMPLATES.find((t) => t.name === opts.template);
+      if (!tpl) throw new Error(`Unknown loop template "${opts.template}"`);
+      ({ start, startEntry } = placeWalkLoop(this.layout, tpl.steps));
+    } else if (opts.randomBounds) {
       const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
-      const { start, startEntry } = generateRandomRectangleLoop(this.layout, bounds, rng);
-      this.loop = this.layout.buildLoop(start, startEntry);
+      ({ start, startEntry } = generateRandomRectangleLoop(this.layout, opts.randomBounds, rng));
+    } else if (opts.seed != null) {
+      const rng = mulberry32(opts.seed);
+      ({ start, startEntry } = generateTemplateLoop(this.layout, rng));
+    } else {
+      ({ start, startEntry } = generateRectangleLoop(this.layout, -2, -2, 2, 2));
     }
+    this.loop = this.layout.buildLoop(start, startEntry);
     this.path = this.loop.curve;
     this.object3d = this.build();
     if (opts.position) this.object3d.position.fromArray(opts.position);

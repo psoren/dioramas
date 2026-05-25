@@ -221,6 +221,10 @@ export interface PlacedTile {
   gridZ: number;
   def: TrackTileDef;
   rotation: Rotation;
+  /** Optional entry→exit routing for 3+-port tiles. The walker uses this
+   *  to decide which exit a train takes when it enters via a given port.
+   *  Absent for 2-port tiles (only one possible exit). */
+  routing?: Map<Direction, Direction>;
 }
 
 /** A placed tile's actual world-space ports (rotated + translated). */

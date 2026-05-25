@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { TrackLayout, generateRectangleLoop } from './trackLayout';
-import { TILE_SIZE } from './trackTile';
+import {
+  TrackLayout,
+  generateRectangleLoop,
+  placeWalkLoop,
+  LOOP_TEMPLATES,
+} from './trackLayout';
+import {
+  TILE_SIZE,
+  TEE_NES,
+  STRAIGHT_NS,
+  CURVE_NE,
+  RAMP_NS,
+  RAMP_HEIGHT,
+} from './trackTile';
 
 describe('buildLoop output curve', () => {
   it('every sampled point sits inside the rectangle bounding box', () => {
@@ -32,6 +44,72 @@ describe('buildLoop output curve', () => {
     const { start, startEntry } = generateRectangleLoop(layout, 0, 0, 1, 1);
     layout['cells'].delete('1,1');
     expect(() => layout.buildLoop(start, startEntry)).toThrow();
+  });
+});
+
+describe('walk-loop templates', () => {
+  it('every built-in template closes (net displacement = 0)', () => {
+    // If a template's steps don't sum to zero displacement, placeWalkLoop
+    // throws before placing tiles. This is the headline correctness
+    // contract for the template library — silent breakage here would
+    // crash the manifest builder for every scene using that template.
+    for (const tpl of LOOP_TEMPLATES) {
+      const layout = new TrackLayout();
+      expect(() => placeWalkLoop(layout, tpl.steps), `template "${tpl.name}" should close`).not.toThrow();
+    }
+  });
+
+  it('non-closing walk steps throw', () => {
+    // Without this check a generator bug could place tiles forever or
+    // leave a dead-end loop that crashes buildLoop downstream — the
+    // close-check is the first line of defence.
+    const layout = new TrackLayout();
+    expect(() => placeWalkLoop(layout, [['E', 3], ['S', 2]])).toThrow();
+  });
+
+  it('placed L-shape produces a walkable loop with right tile count', () => {
+    // Sanity: a 6-cell + 4-cell perimeter L should have exactly the right
+    // number of tiles, and buildLoop should successfully walk it.
+    const layout = new TrackLayout();
+    const tpl = LOOP_TEMPLATES.find((t) => t.name === 'L-large')!;
+    const expectedCells = tpl.steps.reduce((n, [, count]) => n + count, 0);
+    const { start, startEntry } = placeWalkLoop(layout, tpl.steps);
+    expect(layout.tiles().length).toBe(expectedCells);
+    expect(() => layout.buildLoop(start, startEntry)).not.toThrow();
+  });
+});
+
+describe('buildLoop Y verification', () => {
+  it('throws if a tile seam has mismatched Y (ramp followed by flat straight)', () => {
+    // Place a 2x2 of: RAMP_NS going up + STRAIGHT_NS at y=0. The ramp's
+    // S port is at y=RAMP_HEIGHT but the straight's N port is at y=0 —
+    // any train would pop down at the seam. The Y-mismatch check is the
+    // only thing protecting ramp users from this silent visual glitch.
+    const layout = new TrackLayout();
+    layout.place(0, 0, RAMP_NS, 0);     // exit S at y=RAMP_HEIGHT
+    layout.place(0, 1, STRAIGHT_NS, 0); // entry N at y=0
+    layout.place(0, 2, CURVE_NE, 1);    // ports W, N — won't matter, never reached
+    layout.place(-1, 2, STRAIGHT_NS, 1); // E, W — won't be reached either
+    // We only need the first seam to fail; truncate the loop expectation.
+    expect(() => layout.buildLoop(layout.get(0, 0)!, 'N')).toThrow(/Y mismatch/);
+  });
+});
+
+describe('buildLoop routing through 3+-port tiles', () => {
+  it('uses an entry→exit routing map on a TEE to walk a closed loop', () => {
+    // Without routing, the walker can't pick an exit from a 3-port tile
+    // and throws. With routing, a TEE can substitute for a corner in a
+    // standard 2x2 loop (its third port hanging unused, e.g. as a future
+    // spur). This verifies the routing pipeline end-to-end.
+    const layout = new TrackLayout();
+    // 2x2 loop: TEE at NW corner with effective ports {E, S, W} (rot 3).
+    // Only S→E routing is needed; the loop closes when the walker returns
+    // entering from S, so the same routing entry serves both visits.
+    layout.place(0, 0, TEE_NES, 3, new Map([['S', 'E']]));
+    layout.place(1, 0, CURVE_NE, 2); // ports W, S
+    layout.place(1, 1, CURVE_NE, 1); // ports W, N
+    layout.place(0, 1, CURVE_NE, 0); // ports N, E
+    expect(() => layout.buildLoop(layout.get(0, 0)!, 'S')).not.toThrow();
   });
 });
 
