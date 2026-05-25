@@ -69,6 +69,10 @@ function portPos(d: Direction): THREE.Vector3 {
   return new THREE.Vector3(dx * HALF, 0, dz * HALF);
 }
 
+/** Vertical lift in world units that a single RAMP_NS tile produces. Use
+ *  ELEVATED_STRAIGHT_NS / ELEVATED_CURVE_NE on top to build bridges. */
+export const RAMP_HEIGHT = 1.0;
+
 // --- Straight tile: N <-> S ---------------------------------------------
 export const STRAIGHT_NS: TrackTileDef = {
   kind: 'straight-ns',
@@ -77,6 +81,46 @@ export const STRAIGHT_NS: TrackTileDef = {
     requirePair(this, from, to);
     const a = portPos(from);
     const b = portPos(to);
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+    }
+    return pts;
+  },
+};
+
+// --- Ramp tile: N <-> S, low N (y=0) → high S (y=RAMP_HEIGHT) -----------
+// Traverse N→S to climb, S→N to descend. Slope is a straight line in XZ
+// with linearly interpolated Y.
+export const RAMP_NS: TrackTileDef = {
+  kind: 'ramp-ns',
+  basePorts: ['N', 'S'],
+  samplePath(from, to, samples) {
+    requirePair(this, from, to);
+    const a = portPos(from);
+    const b = portPos(to);
+    // Set Y on the high-side port: N is low (0), S is high (RAMP_HEIGHT).
+    if (from === 'S') a.y = RAMP_HEIGHT;
+    if (to === 'S') b.y = RAMP_HEIGHT;
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+    }
+    return pts;
+  },
+};
+
+// --- Elevated straight: N <-> S, both ports at y=RAMP_HEIGHT -----------
+// Use between two ramps to build a bridge span over other tracks.
+export const ELEVATED_STRAIGHT_NS: TrackTileDef = {
+  kind: 'elevated-straight-ns',
+  basePorts: ['N', 'S'],
+  samplePath(from, to, samples) {
+    requirePair(this, from, to);
+    const a = portPos(from); a.y = RAMP_HEIGHT;
+    const b = portPos(to);   b.y = RAMP_HEIGHT;
     const pts: THREE.Vector3[] = [];
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
@@ -166,7 +210,9 @@ function requirePair(def: TrackTileDef, from: Direction, to: Direction): void {
   if (from === to) throw new Error(`from === to (${from})`);
 }
 
-export const ALL_TILES: readonly TrackTileDef[] = [STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW];
+export const ALL_TILES: readonly TrackTileDef[] = [
+  STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW, RAMP_NS, ELEVATED_STRAIGHT_NS,
+];
 
 // --- Placed tile + helpers ----------------------------------------------
 

@@ -6,6 +6,9 @@ import {
   rotateDir,
   sampleWorldPath,
   CURVE_NE,
+  RAMP_NS,
+  RAMP_HEIGHT,
+  ELEVATED_STRAIGHT_NS,
   PlacedTile,
   Rotation,
 } from './trackTile';
@@ -29,6 +32,31 @@ describe('rotateDir', () => {
   it('handles negative rotations (used by sampleWorldPath to undo a placed tile rotation)', () => {
     expect(rotateDir('N', -1)).toBe('E');
     expect(rotateDir('N', -3)).toBe('W');
+  });
+});
+
+describe('ramp tiles', () => {
+  it('RAMP_NS climbs monotonically from N (y=0) to S (y=RAMP_HEIGHT)', () => {
+    // Catches sign errors and bad endpoint Y assignment that would still
+    // typecheck but break bridge alignment with neighbouring tiles.
+    const tile: PlacedTile = { gridX: 0, gridZ: 0, def: RAMP_NS, rotation: 0 };
+    const pts = sampleWorldPath(tile, 'N', 'S', 10);
+    expect(pts[0]!.y).toBeCloseTo(0);
+    expect(pts.at(-1)!.y).toBeCloseTo(RAMP_HEIGHT);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]!.y).toBeGreaterThanOrEqual(pts[i - 1]!.y);
+    }
+  });
+
+  it('ELEVATED_STRAIGHT_NS exit Y matches RAMP_NS top — bridges align', () => {
+    // The bridge contract: a ramp tile leaves at y=RAMP_HEIGHT, the next
+    // (elevated) tile must enter at the same height. If they ever drift
+    // apart, the train pops up/down at the seam.
+    const ramp: PlacedTile = { gridX: 0, gridZ: 0, def: RAMP_NS, rotation: 0 };
+    const elev: PlacedTile = { gridX: 0, gridZ: 1, def: ELEVATED_STRAIGHT_NS, rotation: 0 };
+    const rampExit = sampleWorldPath(ramp, 'N', 'S', 4).at(-1)!;
+    const elevEntry = sampleWorldPath(elev, 'N', 'S', 4)[0]!;
+    expect(elevEntry.y).toBeCloseTo(rampExit.y);
   });
 });
 
