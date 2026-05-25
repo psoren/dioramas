@@ -244,3 +244,32 @@ input[type=range]::-moz-range-thumb {
   line-height: 1.4;
   white-space: pre-wrap;
 }
+
+.inspect-panel {
+  right: 18px;
+  top: 18px;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 14px 16px;
+}
+.inspect-panel h2 {
+  margin: 4px 0 0 0;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: #f0f4ff;
+}
+.inspect-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+  color: #f0f4ff;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 11px;
+}
+.inspect-close:hover { background: rgba(255,255,255,0.12); }

@@ -11,6 +11,7 @@ import { MonorailTrain } from './entities/MonorailTrain';
 import { SpaceTruck } from './entities/SpaceTruck';
 import { AstronautPedestrian } from './entities/AstronautPedestrian';
 import { ApartmentBuilding } from './entities/ApartmentBuilding';
+import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
 
 window.addEventListener('error', (event) => {
   showStartupError('Runtime', event.error ?? event.message);
@@ -75,6 +76,17 @@ sim.orbit.focusCandidates = builtEntities
     entity instanceof AstronautPedestrian,
   )
   .map(({ entity }) => entity.object3d);
+
+// Click-to-inspect: build a uuid→entity map and wire the orbit camera's
+// pick hook to populate the inspect panel.
+const byUuid = new Map<string, { spec: typeof builtEntities[number]['spec']; entity: Entity }>();
+for (const built of builtEntities) byUuid.set(built.entity.object3d.uuid, built);
+const inspect = mountInspectPanel();
+sim.orbit.onPick = (obj) => {
+  const built = byUuid.get(obj.uuid);
+  if (built) inspect.show(describeEntity(built.spec, built.entity));
+};
+sim.orbit.onPickMiss = () => inspect.hide();
 
 const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTelemetry(entity));
 

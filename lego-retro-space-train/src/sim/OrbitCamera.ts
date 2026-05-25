@@ -44,6 +44,14 @@ export class OrbitCamera {
   /** Toggle auto-drift entirely (e.g. from a HUD button). */
   autoDrift = true;
 
+  /** Optional hook fired when a click resolves to a focus candidate. The
+   *  inspect panel uses this to populate itself. Separate from focusOn so
+   *  callers can react without subclassing. */
+  onPick?: (target: THREE.Object3D) => void;
+  /** Optional hook fired when a click lands on empty space. Inspect panel
+   *  uses it to hide itself. */
+  onPickMiss?: () => void;
+
   // --- Cinematic focus state ------------------------------------------------
   /** Object3Ds the auto-camera may pick to focus on. Set externally. */
   focusCandidates: THREE.Object3D[] = [];
@@ -244,14 +252,19 @@ export class OrbitCamera {
     this.raycaster.setFromCamera(this.ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.focusCandidates, true);
     if (hits.length === 0) {
-      // Clicked empty space — exit any active focus.
       this.exitFocus();
       this.noteInteraction();
+      this.onPickMiss?.();
       return;
     }
     const candidate = this.resolveCandidate(hits[0]!.object);
-    if (candidate) this.focusOn(candidate);
-    else this.noteInteraction();
+    if (candidate) {
+      this.focusOn(candidate);
+      this.onPick?.(candidate);
+    } else {
+      this.noteInteraction();
+      this.onPickMiss?.();
+    }
   }
 
   /** Walk up the parent chain until we find one of the registered candidates. */
