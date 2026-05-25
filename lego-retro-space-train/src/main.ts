@@ -93,22 +93,42 @@ const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTe
 
 // Runtime "🎲 Random track" button — disposes the previous random track
 // (if any) and adds a fresh extruded TileTrack at the centre of the plate.
-let randomTrack: TileTrack | undefined;
+const randomTracks: TileTrack[] = [];
 function randomizeTrack(): void {
-  if (randomTrack) sim.remove(randomTrack);
-  // 40% chance: figure-8 with a self-crossing (CROSS_NESW handles routing
-  // for both perpendicular passes). Otherwise the extruded random shape
-  // with a ramp bridge — gives a steady mix of curves, bumps, and
-  // intersections across clicks.
-  const useFigure8 = Math.random() < 0.4;
-  const opts = useFigure8
-    ? { position: [0, 0.02, 0] as [number, number, number], template: 'figure-8' }
-    : {
-        position: [0, 0.02, 0] as [number, number, number],
-        extruded: { iterations: 4, bridges: 1 },
-        seed: Math.floor(Math.random() * 1_000_000),
-      };
-  randomTrack = sim.add(new TileTrack(opts));
+  for (const t of randomTracks) sim.remove(t);
+  randomTracks.length = 0;
+  const roll = Math.random();
+  // 40% twin-track mode: two perpendicular tracks crossing each other,
+  // producing multiple visual intersections without needing CROSS_NESW
+  // on a single walk. Each track is its own loop.
+  // 35% random figure-8 with randomised lobe sizes (one self-crossing).
+  // 25% extruded random shape with a ramp bridge (no crossings).
+  if (roll < 0.4) {
+    // Twin: a random figure-8 + a perpendicular smaller figure-8 offset
+    // so they actually cross visually.
+    randomTracks.push(sim.add(new TileTrack({
+      position: [0, 0.02, 0],
+      randomFigure8: true,
+      seed: Math.floor(Math.random() * 1_000_000),
+    })));
+    randomTracks.push(sim.add(new TileTrack({
+      position: [0, 0.06, 0],
+      extruded: { iterations: 3 },
+      seed: Math.floor(Math.random() * 1_000_000),
+    })));
+  } else if (roll < 0.75) {
+    randomTracks.push(sim.add(new TileTrack({
+      position: [0, 0.02, 0],
+      randomFigure8: true,
+      seed: Math.floor(Math.random() * 1_000_000),
+    })));
+  } else {
+    randomTracks.push(sim.add(new TileTrack({
+      position: [0, 0.02, 0],
+      extruded: { iterations: 4, bridges: 1 },
+      seed: Math.floor(Math.random() * 1_000_000),
+    })));
+  }
 }
 
 // ----- UI -----

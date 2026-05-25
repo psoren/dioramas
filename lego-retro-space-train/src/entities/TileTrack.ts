@@ -12,6 +12,7 @@ import {
   generateRandomRectangleLoop,
   generateTemplateLoop,
   generateExtrudedLoop,
+  generateRandomFigure8,
   placeWalkLoop,
   placeRampBridgeLoop,
 } from '../world/trackLayout';
@@ -50,6 +51,8 @@ export interface TileTrackOptions {
   extruded?: { iterations?: number; bridges?: number };
   /** Use the ramp-bridge loop template (rectangle with a raised middle). */
   rampBridge?: { w: number; h: number };
+  /** Generate a random parametric asymmetric figure-8 with one self-crossing. */
+  randomFigure8?: boolean;
   /** Seed for the random generator (used by template/extruded/random modes). */
   seed?: number;
 }
@@ -89,6 +92,9 @@ export class TileTrack implements Entity {
       ));
     } else if (opts.rampBridge) {
       ({ start, startEntry } = placeRampBridgeLoop(this.layout, opts.rampBridge.w, opts.rampBridge.h));
+    } else if (opts.randomFigure8) {
+      const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
+      ({ start, startEntry } = generateRandomFigure8(this.layout, rng));
     } else if (opts.randomBounds) {
       const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
       ({ start, startEntry } = generateRandomRectangleLoop(this.layout, opts.randomBounds, rng));

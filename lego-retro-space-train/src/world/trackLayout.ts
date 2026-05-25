@@ -432,6 +432,39 @@ export const LOOP_TEMPLATES: ReadonlyArray<LoopTemplate> = [
   { name: 'figure-8', steps: [['E', 2], ['S', 2], ['W', 4], ['S', 2], ['E', 2], ['N', 4]] },
 ];
 
+/**
+ * Build steps for an asymmetric figure-8: two perpendicular lobes joined
+ * at one self-crossing cell. lobeW1/H1 control the top-left lobe size,
+ * lobeW2/H2 the bottom-right lobe. The crossing falls at (0, h1).
+ */
+export function figure8Steps(
+  w1: number,
+  h1: number,
+  w2: number,
+  h2: number,
+): WalkStep[] {
+  return [
+    ['E', w1],
+    ['S', h1],
+    ['W', w1 + w2],
+    ['S', h2],
+    ['E', w2],
+    ['N', h1 + h2],
+  ];
+}
+
+/** Pick random lobe sizes 2-4 cells per side and build a figure-8. */
+export function generateRandomFigure8(
+  layout: TrackLayout,
+  rng: () => number = Math.random,
+): { start: PlacedTile; startEntry: Direction } {
+  const w1 = 2 + Math.floor(rng() * 3);
+  const h1 = 2 + Math.floor(rng() * 3);
+  const w2 = 2 + Math.floor(rng() * 3);
+  const h2 = 2 + Math.floor(rng() * 3);
+  return placeWalkLoop(layout, figure8Steps(w1, h1, w2, h2));
+}
+
 /** Pick a random template and place it. */
 export function generateTemplateLoop(
   layout: TrackLayout,
