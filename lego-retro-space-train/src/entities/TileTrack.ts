@@ -20,6 +20,13 @@ const RAIL_Y = 0.085;
 const CONDUCTOR_HALF_WIDTH = 0.05;
 const CONDUCTOR_Y = 0.075;
 const SAMPLES = 280;
+// Cross-ties (sleepers) across the deck — periodic dark ribs so the deck
+// reads as railway rather than a plain gray strip.
+const TIE_INTERVAL = 0.55;
+const TIE_LENGTH = 0.95;
+const TIE_DEPTH = 0.16;
+const TIE_HEIGHT = 0.03;
+const TIE_Y = 0.055;
 
 export interface TileTrackOptions {
   position?: THREE.Vector3Tuple;
@@ -108,6 +115,21 @@ export class TileTrack implements Entity {
       MAT.yellow,
     );
     g.add(conductor);
+
+    // --- Cross-ties (sleepers) spaced along the path ---
+    const totalLen = this.path.getLength();
+    const tieCount = Math.max(1, Math.floor(totalLen / TIE_INTERVAL));
+    const tieGeo = new THREE.BoxGeometry(TIE_LENGTH, TIE_HEIGHT, TIE_DEPTH);
+    for (let i = 0; i < tieCount; i++) {
+      const t = i / tieCount;
+      const p = this.path.getPointAt(t);
+      const tan = this.path.getTangentAt(t);
+      const tie = new THREE.Mesh(tieGeo, railMat);
+      tie.position.set(p.x, TIE_Y, p.z);
+      tie.rotation.y = Math.atan2(tan.x, tan.z) - Math.PI / 2;
+      tie.receiveShadow = true;
+      g.add(tie);
+    }
 
     return g;
   }
