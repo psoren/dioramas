@@ -11,6 +11,7 @@ import { MonorailTrain } from './entities/MonorailTrain';
 import { SpaceTruck } from './entities/SpaceTruck';
 import { AstronautPedestrian } from './entities/AstronautPedestrian';
 import { ApartmentBuilding } from './entities/ApartmentBuilding';
+import { TileTrack } from './entities/TileTrack';
 import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
 
 window.addEventListener('error', (event) => {
@@ -90,15 +91,26 @@ sim.orbit.onPickMiss = () => inspect.hide();
 
 const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTelemetry(entity));
 
-// ----- UI -----
-if (tracked && hasTelemetry(tracked.entity)) {
-  mountHUD(sim, {
-    setNumber: '40786',
-    setName: 'Micro Command Centre',
-    subtitle: 'Classic Space · Telemetry',
-    trackedVehicle: tracked.entity,
-  });
+// Runtime "🎲 Random track" button — disposes the previous random track
+// (if any) and adds a fresh extruded TileTrack at the centre of the plate.
+let randomTrack: TileTrack | undefined;
+function randomizeTrack(): void {
+  if (randomTrack) sim.remove(randomTrack);
+  randomTrack = sim.add(new TileTrack({
+    position: [0, 0.02, 0],
+    extruded: { iterations: 4 },
+    seed: Math.floor(Math.random() * 1_000_000),
+  }));
 }
+
+// ----- UI -----
+mountHUD(sim, {
+  setNumber: '40786',
+  setName: 'Micro Command Centre',
+  subtitle: tracked && hasTelemetry(tracked.entity) ? 'Classic Space · Telemetry' : 'Classic Space',
+  trackedVehicle: tracked && hasTelemetry(tracked.entity) ? tracked.entity : undefined,
+  onRandomizeTrack: randomizeTrack,
+});
 
 sim.start();
 

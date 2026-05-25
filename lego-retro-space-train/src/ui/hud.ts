@@ -9,13 +9,28 @@ export interface HUDOptions {
   setNumber: string;
   setName: string;
   subtitle?: string;
-  /** The vehicle whose stats appear in the HUD. */
-  trackedVehicle: VehicleTelemetry;
+  /** Optional — when present the HUD shows velocity + lap stats. */
+  trackedVehicle?: VehicleTelemetry;
+  /** Optional — when present, the 🎲 Random track button appears and
+   *  clicking it invokes this callback. */
+  onRandomizeTrack?: () => void;
 }
 
 export function mountHUD(sim: Sim, opts: HUDOptions): void {
   const root = document.getElementById('ui-root');
   if (!root) throw new Error('#ui-root not found');
+
+  const telemetryRows = opts.trackedVehicle
+    ? `
+      <div class="stat"><span><span class="blink"></span>Monorail</span><span id="stat-status">CIRCULATING</span></div>
+      <div class="stat"><span>Velocity</span><span id="stat-vel">—</span></div>
+      <div class="stat"><span>Laps</span><span id="stat-laps">0</span></div>
+      <div class="divider"></div>
+    `
+    : '';
+  const randomizeBtn = opts.onRandomizeTrack
+    ? `<button class="btn" id="btn-randomize">🎲 Random track</button>`
+    : '';
 
   root.innerHTML = `
     <div class="panel" id="hud">
@@ -23,9 +38,7 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       <h1>${opts.setName}</h1>
       <div class="sub">${opts.subtitle ?? ''}</div>
       <div class="divider"></div>
-      <div class="stat"><span><span class="blink"></span>Monorail</span><span id="stat-status">CIRCULATING</span></div>
-      <div class="stat"><span>Velocity</span><span id="stat-vel">—</span></div>
-      <div class="stat"><span>Laps</span><span id="stat-laps">0</span></div>
+      ${telemetryRows}
     </div>
 
     <div class="panel" id="hint">
@@ -41,22 +54,22 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       </div>
       <div class="sep"></div>
       <button class="btn" id="btn-reset">Reset View</button>
+      ${randomizeBtn}
     </div>
-
   `;
 
   const btnPlay = document.getElementById('btn-play') as HTMLButtonElement;
   const btnReset = document.getElementById('btn-reset') as HTMLButtonElement;
   const speed = document.getElementById('speed') as HTMLInputElement;
-  const statStatus = document.getElementById('stat-status') as HTMLElement;
-  const statVel = document.getElementById('stat-vel') as HTMLElement;
-  const statLaps = document.getElementById('stat-laps') as HTMLElement;
 
   btnPlay.addEventListener('click', () => {
     sim.playing = !sim.playing;
     btnPlay.textContent = sim.playing ? '⏸ Pause' : '▶ Play';
-    statStatus.textContent = sim.playing ? 'CIRCULATING' : 'HOLD';
-    statStatus.style.color = sim.playing ? '' : '#ff9050';
+    const statStatus = document.getElementById('stat-status');
+    if (statStatus) {
+      statStatus.textContent = sim.playing ? 'CIRCULATING' : 'HOLD';
+      statStatus.style.color = sim.playing ? '' : '#ff9050';
+    }
   });
 
   btnReset.addEventListener('click', () => sim.orbit.reset());
@@ -65,12 +78,19 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     sim.speedMultiplier = parseFloat(speed.value);
   });
 
-  // Update telemetry on a slow interval (no need for per-frame)
-  setInterval(() => {
-    const v = opts.trackedVehicle;
-    const effectiveSpeed = sim.playing ? v.speed * sim.speedMultiplier : 0;
-    statVel.textContent = (effectiveSpeed * 100).toFixed(0) + ' u/s';
-    statLaps.textContent = String(v.laps);
-  }, 100);
+  if (opts.onRandomizeTrack) {
+    const btn = document.getElementById('btn-randomize') as HTMLButtonElement;
+    btn.addEventListener('click', () => opts.onRandomizeTrack!());
+  }
 
+  if (opts.trackedVehicle) {
+    const statVel = document.getElementById('stat-vel') as HTMLElement;
+    const statLaps = document.getElementById('stat-laps') as HTMLElement;
+    setInterval(() => {
+      const v = opts.trackedVehicle!;
+      const effectiveSpeed = sim.playing ? v.speed * sim.speedMultiplier : 0;
+      statVel.textContent = (effectiveSpeed * 100).toFixed(0) + ' u/s';
+      statLaps.textContent = String(v.laps);
+    }, 100);
+  }
 }

@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
+import { BASE_SIZE } from '../world/constants';
 
 const MOON_RADIUS = 60;
 const MOON_Y = -0.5;
 const CRATER_COUNT = 28;
 const ROCK_COUNT = 24;
+// Inner radius for craters + rocks: outside the baseplate's farthest
+// corner (`sqrt(2) * BASE_SIZE` for a square plate) plus a small margin
+// so nothing pokes through the blue.
+const SCATTER_INNER = Math.SQRT2 * BASE_SIZE + 2;
 
 /**
  * Flat moon surface around the plate. A big gray disc with scattered crater
@@ -32,9 +37,8 @@ export class MoonSurface implements Entity {
     // they don't jitter between sessions.
     const rng = mulberry32(20260524);
     for (let i = 0; i < CRATER_COUNT; i++) {
-      // Place craters outside the baseplate footprint so they don't peek through.
       const angle = rng() * Math.PI * 2;
-      const radius = 16 + rng() * (MOON_RADIUS - 18);
+      const radius = SCATTER_INNER + rng() * (MOON_RADIUS - SCATTER_INNER - 2);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       const craterR = 1.2 + rng() * 3.5;
@@ -51,7 +55,7 @@ export class MoonSurface implements Entity {
     // Scatter little moon rocks
     for (let i = 0; i < ROCK_COUNT; i++) {
       const angle = rng() * Math.PI * 2;
-      const radius = 15 + rng() * (MOON_RADIUS - 18);
+      const radius = SCATTER_INNER + rng() * (MOON_RADIUS - SCATTER_INNER - 2);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       const size = 0.2 + rng() * 0.6;
