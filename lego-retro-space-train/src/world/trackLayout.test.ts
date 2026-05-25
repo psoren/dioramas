@@ -175,10 +175,24 @@ describe('extruded random shape generator', () => {
         return s / 2147483647;
       };
       const { start, startEntry } = generateExtrudedLoop(layout, rng, 6);
-      // If the layout self-intersected, two cells would have the same
-      // (gx, gz) but only the second placement wins — buildLoop's
-      // entry-port mismatch check would fire on the first walked cell
-      // whose tile got overwritten.
+      expect(() => layout.buildLoop(start, startEntry), `seed ${seed}`).not.toThrow();
+    }
+  });
+
+  it('bridge insertion never places a ramp on a corner (200 seeds)', () => {
+    // Regression: findStraightRuns was including the turn cell at the
+    // end of each run, so a ramp could land on a corner cell and the
+    // walker would crash with a port-mismatch error. The Y-continuity
+    // and port-check pieces of buildLoop together fail loudly if any
+    // bridge tile is mis-rotated.
+    for (let seed = 1; seed <= 200; seed++) {
+      const layout = new TrackLayout();
+      let s = seed;
+      const rng = () => {
+        s = (s * 16807) % 2147483647;
+        return s / 2147483647;
+      };
+      const { start, startEntry } = generateExtrudedLoop(layout, rng, 4, 2);
       expect(() => layout.buildLoop(start, startEntry), `seed ${seed}`).not.toThrow();
     }
   });

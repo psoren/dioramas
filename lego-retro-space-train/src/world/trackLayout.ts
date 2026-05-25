@@ -542,9 +542,12 @@ const RAMP_DOWN_ROT: Record<Direction, Rotation> = { E: 3, W: 1, N: 0, S: 2 };
 const ELEVATED_ROT: Record<Direction, Rotation> = { E: 1, W: 1, N: 0, S: 0 };
 
 /**
- * Walk the cell list and find runs of ≥ `minLen` consecutive cells going
- * in the same direction. Each run reports its cardinal direction + the
- * exact cell sequence.
+ * Walk the cell list and find runs of ≥ `minLen` consecutive *straight*
+ * cells in the same direction. A cell is "straight in direction X" iff
+ * its entry direction (== exit of previous cell) equals its own exit
+ * direction X — i.e. the walker passes through without turning. Corner
+ * cells (where entry != exit) are explicitly excluded from runs because
+ * placing a ramp tile on a corner produces wrong-orientation ports.
  */
 function findStraightRuns(
   cells: ReadonlyArray<readonly [number, number]>,
@@ -553,24 +556,34 @@ function findStraightRuns(
   const runs: Array<{ dir: Direction; cells: Array<[number, number]>; startIdx: number }> = [];
   const n = cells.length;
   if (n < minLen) return runs;
-  let runDir: Direction | null = null;
-  let runStart = 0;
+  const exitDir: Direction[] = [];
   for (let i = 0; i < n; i++) {
     const [cx, cz] = cells[i]!;
     const [nx, nz] = cells[(i + 1) % n]!;
-    const dir = dirFromTo(cx, cz, nx, nz);
-    if (dir === runDir) continue;
-    // Direction changed at i — close the previous run if long enough.
-    if (runDir !== null) {
-      const len = i - runStart + 1;
-      if (len >= minLen) {
-        const slice: Array<[number, number]> = [];
-        for (let j = runStart; j <= i; j++) slice.push([cells[j]![0], cells[j]![1]]);
-        runs.push({ dir: runDir, cells: slice, startIdx: runStart });
-      }
+    exitDir.push(dirFromTo(cx, cz, nx, nz));
+  }
+  let i = 0;
+  while (i < n) {
+    const entry = exitDir[(i - 1 + n) % n]!;
+    const exit = exitDir[i]!;
+    if (entry !== exit) {
+      i++;
+      continue;
     }
-    runDir = dir;
-    runStart = i;
+    const dir = exit;
+    const start = i;
+    while (i < n) {
+      const e = exitDir[(i - 1 + n) % n]!;
+      const x = exitDir[i]!;
+      if (e === dir && x === dir) i++;
+      else break;
+    }
+    const len = i - start;
+    if (len >= minLen) {
+      const slice: Array<[number, number]> = [];
+      for (let j = start; j < start + len; j++) slice.push([cells[j]![0], cells[j]![1]]);
+      runs.push({ dir, cells: slice, startIdx: start });
+    }
   }
   return runs;
 }
