@@ -52,25 +52,10 @@ export class JunctionTrack implements Entity {
     deckMat.side = THREE.DoubleSide;
     const railMat = MAT.grayDark.clone();
 
-    // --- Cell pads for every tile in the underlying layout ---
-    // Elevated cells get their pad raised; ramp cells get a pad midway up.
-    const padGeo = new THREE.BoxGeometry(TILE_SIZE * 0.96, 0.012, TILE_SIZE * 0.96);
-    const padMat = MAT.grayDark.clone();
-    padMat.transparent = true;
-    padMat.opacity = 0.35;
-    for (const tile of this.graph.layout.tiles()) {
-      const pad = new THREE.Mesh(padGeo, padMat);
-      const padY =
-        tile.def.kind === 'elevated-straight-ns' ? RAMP_HEIGHT + 0.012 :
-        tile.def.kind === 'ramp-ns' ? RAMP_HEIGHT / 2 + 0.012 :
-        0.012;
-      pad.position.set(tile.gridX * TILE_SIZE, padY, tile.gridZ * TILE_SIZE);
-      pad.receiveShadow = true;
-      g.add(pad);
-    }
-
     // --- Bridge pillars under ELEVATED cells (and a shorter post under the
     //     midpoint of each RAMP_NS so the slope doesn't float free). ---
+    // (Cell pads removed — the deck strip already shows the track, and
+    // transparent pads compounded into murky slabs in dense branch areas.)
     const pillarMat = MAT.grayDark;
     for (const tile of this.graph.layout.tiles()) {
       if (tile.def.kind !== 'elevated-straight-ns' && tile.def.kind !== 'ramp-ns') continue;
@@ -132,21 +117,47 @@ export class JunctionTrack implements Entity {
       g.add(stop);
     }
 
-    // --- Station platforms (slab next to the track + green marker) ---
-    const platGeo = new THREE.BoxGeometry(TILE_SIZE * 1.6, 0.18, 0.6);
+    // --- Station platforms ---
+    // Sit the platform perpendicular to the track at the station cell,
+    // on whichever side has free space (the side without an outgoing
+    // edge). Length runs ALONG the track direction so the platform looks
+    // like a real train platform.
     const platMat = MAT.gray.clone();
     for (const node of this.graph.nodes) {
       if (node.kind !== 'station') continue;
+      // Track tangent at the station: use any incident edge's tangent
+      // at the station's end of the curve.
+      const incident = node.edges[0];
+      if (!incident) continue;
+      const tEnd = incident.from === node ? 0 : 1;
+      const tan = incident.curve.getTangentAt(tEnd);
+      // Track-aligned direction (horizontal projection, normalised).
+      const trackLen = Math.hypot(tan.x, tan.z) || 1;
+      const trackDx = tan.x / trackLen;
+      const trackDz = tan.z / trackLen;
+      // Perpendicular (right-hand side of the track direction). For a
+      // station on the inside of a loop both sides have track, but the
+      // platform on EITHER side reads fine — pick the +90° rotation.
+      const perpDx = -trackDz;
+      const perpDz = trackDx;
+      const offset = TILE_SIZE * 0.7;
+      const px = node.pos.x + perpDx * offset;
+      const py = node.pos.y;
+      const pz = node.pos.z + perpDz * offset;
+      // Long, narrow slab aligned with the track.
+      const platGeo = new THREE.BoxGeometry(TILE_SIZE * 1.8, 0.18, 0.5);
       const plat = new THREE.Mesh(platGeo, platMat);
-      plat.position.set(node.pos.x, 0.1, node.pos.z - TILE_SIZE * 0.8);
+      plat.position.set(px, py + 0.1, pz);
+      plat.rotation.y = Math.atan2(trackDx, trackDz) - Math.PI / 2;
       plat.receiveShadow = true;
       plat.castShadow = true;
       g.add(plat);
+      // Green marker post at the platform centre.
       const marker = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.08, 0.9, 10),
         MAT.greenLED,
       );
-      marker.position.set(node.pos.x, 0.45, node.pos.z - TILE_SIZE * 0.8);
+      marker.position.set(px, py + 0.45, pz);
       marker.castShadow = true;
       g.add(marker);
     }

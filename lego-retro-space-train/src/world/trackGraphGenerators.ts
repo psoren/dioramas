@@ -20,7 +20,6 @@ import {
   extrudeRandomSegment,
   findStraightRuns,
   placePolygonLoop,
-  twistRandomSegment,
 } from './trackLayout';
 import { GraphNode, NodeKind, TrackGraph, buildGraphFromLayout } from './trackGraph';
 
@@ -238,25 +237,35 @@ export function generateRandomGraphTrack(
 
 function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | null {
   // ---------- 1. Random base shape ----------
-  // Sized to fit the 28-unit plate (~11 cells per side) even after
-  // extrusions push outward. Base 7-9 × 5-7, extrusions limited to depth
-  // 1 so the final bbox stays inside ±5 cells from origin.
-  const w = 7 + Math.floor(rng() * 3); // 7-9
-  const h = 5 + Math.floor(rng() * 3); // 5-7
-  let steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
-  const extrusions = Math.floor(rng() * 3); // 0-2
-  for (let i = 0; i < extrusions; i++) {
-    const next = extrudeRandomSegment(steps, rng, /*minLen*/ 4, /*maxBumpDepth*/ 1);
-    if (next) steps = next;
-  }
-  // Optional CROSS intersections via the twist op. Each successful twist
-  // adds one self-crossing cell that placePolygonLoop auto-places as a
-  // CROSS_NESW. 1-3 attempted — many seeds fail to find a valid twist site
-  // on smaller shapes, so this overshoots to land more crosses on average.
-  const nTwistsToAttempt = 1 + Math.floor(rng() * 3); // 1-3
-  for (let i = 0; i < nTwistsToAttempt; i++) {
-    const next = twistRandomSegment(steps, rng);
-    if (next) steps = next;
+  // Either a centred rectangle (with optional outward bumps) or a clean
+  // parametric figure-8 (two lobes meeting at one CROSS — naturally
+  // shaped without the "lollipop" knot the twist op produces on small
+  // segments). Sized to fit the 28-unit plate (~11 cells per side).
+  const useFigure8 = rng() < 0.35;
+  let steps: WalkStep[];
+  if (useFigure8) {
+    const w1 = 3 + Math.floor(rng() * 2); // 3-4
+    const h1 = 2 + Math.floor(rng() * 2); // 2-3
+    const w2 = 3 + Math.floor(rng() * 2);
+    const h2 = 2 + Math.floor(rng() * 2);
+    steps = [
+      ['E', w1],
+      ['S', h1],
+      ['W', w1 + w2],
+      ['S', h2],
+      ['E', w2],
+      ['N', h1 + h2],
+    ];
+  } else {
+    const w = 7 + Math.floor(rng() * 3); // 7-9
+    const h = 5 + Math.floor(rng() * 3); // 5-7
+    steps = [['E', w], ['S', h], ['W', w], ['N', h]];
+    // Outward bumps for organic shape variety.
+    const extrusions = Math.floor(rng() * 3); // 0-2
+    for (let i = 0; i < extrusions; i++) {
+      const next = extrudeRandomSegment(steps, rng, /*minLen*/ 4, /*maxBumpDepth*/ 1);
+      if (next) steps = next;
+    }
   }
   const origin = centeredOrigin(steps);
 
