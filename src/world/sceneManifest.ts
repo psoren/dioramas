@@ -92,6 +92,9 @@ export interface SceneEntitySpec {
   cargoStops?: CargoStop[];
   /** For spaceTruck: start the truck with a cargo container shown. */
   startWithCargo?: boolean;
+  /** For monorailTrain: tile-track entity ID to attach to. Replaces routeId
+   *  for tile-system tracks. */
+  tileTrackId?: string;
 }
 
 export interface BuiltSceneEntity {
@@ -145,13 +148,24 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
   { id: 'depot-north', kind: 'containerDepot', position: [0, 0.05, 13], heading: 0 },
   { id: 'depot-south', kind: 'containerDepot', position: [0, 0.05, -13], heading: Math.PI },
   // First track rendered with the new tile system — a 4×4 rectangle loop
-  // centred on the baseplate, surrounding the command centre. Replaces
-  // the seven hand-built routes that used to live here. No trains or
-  // stations on it yet; those get added back next.
+  // centred on the baseplate, surrounding the command centre.
   {
     id: 'main-tile-track',
     kind: 'tileTrack',
     position: [0, 0.02, 0],
+  },
+  // First train on the new system. References `main-tile-track` via
+  // `tileTrackId` instead of a routeId; the manifest builder grabs the
+  // tile-track entity's `.path` and feeds it to MonorailTrain.
+  {
+    id: 'main-tile-train',
+    kind: 'monorailTrain',
+    tileTrackId: 'main-tile-track',
+    speed: 0.045,
+    t: 0.0,
+    cars: 1,
+    carSpacing: 0.05,
+    telemetry: true,
   },
   // Astronaut apartment on the moon surface — pedestrians use it as "home".
   // Door faces the baseplate (heading rotates +X toward origin).
@@ -204,14 +218,25 @@ export function buildSceneEntity(
         position: spec.position ?? [0, 0, 0],
         heading: spec.heading,
       });
-    case 'monorailTrain':
+    case 'monorailTrain': {
+      let path: THREE.CatmullRomCurve3;
+      if (spec.tileTrackId) {
+        const tt = registry.get(spec.tileTrackId);
+        if (!(tt instanceof TileTrack)) {
+          throw new Error(`monorailTrain tileTrackId "${spec.tileTrackId}" must point at a TileTrack`);
+        }
+        path = tt.path;
+      } else {
+        path = getTrackRoute(spec.routeId).path;
+      }
       return new MonorailTrain({
-        path: getTrackRoute(spec.routeId).path,
+        path,
         speed: signedSpeed(spec, 0.07),
         t: spec.t,
         cars: spec.cars,
         carSpacing: spec.carSpacing,
       });
+    }
     case 'spaceTruck':
       return new SpaceTruck({
         path: spec.track === 'monorail' ? trackPath : roadPath,
