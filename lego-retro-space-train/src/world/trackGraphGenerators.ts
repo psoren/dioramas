@@ -342,9 +342,10 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     return null;
   };
 
-  // 3a. Reserve a main-loop bridge first so it always lands. Bridges only
-  // need 3 cells (RAMP + ELEVATED + RAMP), while sidings need 4+, so
-  // claiming bridge cells first won't starve siding placement.
+  // 3a. Reserve a main-loop bridge first so it always lands. ONE bridge
+  // only — two close together produces "stacked pillars" visual noise.
+  // Claim ±1 cell margin around the bridge to keep sidings away from
+  // the ramps (siding TEEs on a ramp cell mean Y mismatch at the seam).
   {
     const run = pickFreeSubRun(3);
     if (run) placeBridge(run, claimed, overrides);
@@ -367,12 +368,6 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     const run = pickFreeSubRun(3);
     if (!run) break;
     tryPlaceSpur(run, rng, walkSet, claimed, overrides, extraTiles, nodeCells, stationLabel, junctionLabel);
-  }
-
-  // 3d. Try for one more bridge for vertical variety.
-  {
-    const run = pickFreeSubRun(3);
-    if (run) placeBridge(run, claimed, overrides);
   }
 
   // 3d. Ensure ≥ 2 stations (and aim for 3+ when the graph has room — more
@@ -579,7 +574,13 @@ function placeBridge(
   overrides.set(`${up[0]},${up[1]}`, { def: RAMP_NS, rotation: RAMP_UP_ROT[run.dir] });
   overrides.set(`${el[0]},${el[1]}`, { def: ELEVATED_STRAIGHT_NS, rotation: ELEVATED_ROT[run.dir] });
   overrides.set(`${dn[0]},${dn[1]}`, { def: RAMP_NS, rotation: RAMP_DOWN_ROT[run.dir] });
+  // Claim the 3 bridge cells plus a 1-cell margin on each side so the
+  // next decoration (siding TEE, spur) can't land on the ramp seam — a
+  // TEE on a ramp tile would cause a Y discontinuity at the junction.
   claimed.add(`${up[0]},${up[1]}`);
   claimed.add(`${el[0]},${el[1]}`);
   claimed.add(`${dn[0]},${dn[1]}`);
+  const dirVec = run.dir === 'E' ? [1, 0] : run.dir === 'W' ? [-1, 0] : run.dir === 'N' ? [0, -1] : [0, 1];
+  claimed.add(`${up[0] - dirVec[0]!},${up[1] - dirVec[1]!}`);
+  claimed.add(`${dn[0] + dirVec[0]!},${dn[1] + dirVec[1]!}`);
 }

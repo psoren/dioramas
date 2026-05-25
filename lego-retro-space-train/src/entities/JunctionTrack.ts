@@ -53,18 +53,17 @@ export class JunctionTrack implements Entity {
     deckMat.side = THREE.DoubleSide;
     const railMat = MAT.grayDark.clone();
 
-    // --- Bridge pillars under ELEVATED cells (and a shorter post under the
-    //     midpoint of each RAMP_NS so the slope doesn't float free). ---
-    // (Cell pads removed — the deck strip already shows the track, and
-    // transparent pads compounded into murky slabs in dense branch areas.)
+    // --- Bridge pillars: only under ELEVATED cells. RAMP cells were
+    //     getting fixed-height pillars at the cell centre which didn't
+    //     match the sloping deck, producing visible "step" geometry at
+    //     the ramp seams. Ramps now visually rest on the abutting
+    //     elevated pillars + the ground at the low end. ---
     const pillarMat = MAT.grayDark;
     for (const tile of this.graph.layout.tiles()) {
-      if (tile.def.kind !== 'elevated-straight-ns' && tile.def.kind !== 'ramp-ns') continue;
-      const isElevated = tile.def.kind === 'elevated-straight-ns';
-      const height = isElevated ? RAMP_HEIGHT : RAMP_HEIGHT / 2;
-      const pillarGeo = new THREE.BoxGeometry(0.32, height, 0.32);
+      if (tile.def.kind !== 'elevated-straight-ns') continue;
+      const pillarGeo = new THREE.BoxGeometry(0.32, RAMP_HEIGHT, 0.32);
       const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-      pillar.position.set(tile.gridX * TILE_SIZE, height / 2, tile.gridZ * TILE_SIZE);
+      pillar.position.set(tile.gridX * TILE_SIZE, RAMP_HEIGHT / 2, tile.gridZ * TILE_SIZE);
       pillar.castShadow = true;
       pillar.receiveShadow = true;
       g.add(pillar);
