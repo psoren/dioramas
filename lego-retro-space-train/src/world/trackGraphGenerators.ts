@@ -244,10 +244,12 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   const useFigure8 = rng() < 0.35;
   let steps: WalkStep[];
   if (useFigure8) {
-    const w1 = 3 + Math.floor(rng() * 2); // 3-4
-    const h1 = 2 + Math.floor(rng() * 2); // 2-3
-    const w2 = 3 + Math.floor(rng() * 2);
-    const h2 = 2 + Math.floor(rng() * 2);
+    // Larger lobes so the figure-8 fills more of the plate (was 3-4 ×
+    // 2-3, total bbox ~7×5; now 4-5 × 3-4, total bbox ~9×7).
+    const w1 = 4 + Math.floor(rng() * 2); // 4-5
+    const h1 = 3 + Math.floor(rng() * 2); // 3-4
+    const w2 = 4 + Math.floor(rng() * 2);
+    const h2 = 3 + Math.floor(rng() * 2);
     steps = [
       ['E', w1],
       ['S', h1],
@@ -381,13 +383,36 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     if (run) placeBridge(run, claimed, overrides);
   }
 
-  // 3d. Ensure ≥ 2 stations: add main-loop stations on free runs if needed.
-  while (nodeCells.filter((n) => n.kind === 'station').length < 2) {
-    const run = pickFreeSubRun(1);
-    if (!run) break;
-    const cell = run.cells[Math.floor(run.cells.length / 2)]!;
-    claimed.add(`${cell[0]},${cell[1]}`);
-    nodeCells.push({ gx: cell[0], gz: cell[1], kind: 'station', label: stationLabel() });
+  // 3d. Ensure ≥ 2 stations (and aim for 3+ when the graph has room — more
+  // stations exercise more edges as the train cycles through them).
+  // Pick the FREE walk cell furthest from any existing station so two
+  // stations don't end up in adjacent cells.
+  const TARGET_STATIONS = 3;
+  const MIN_STATION_DIST = 4; // manhattan
+  while (nodeCells.filter((n) => n.kind === 'station').length < TARGET_STATIONS) {
+    let bestCell: readonly [number, number] | null = null;
+    let bestDist = -1;
+    for (const [cx, cz] of cells) {
+      if (claimed.has(`${cx},${cz}`)) continue;
+      let minDist = Infinity;
+      for (const n of nodeCells) {
+        if (n.kind !== 'station') continue;
+        const d = Math.abs(cx - n.gx) + Math.abs(cz - n.gz);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist > bestDist) {
+        bestDist = minDist;
+        bestCell = [cx, cz];
+      }
+    }
+    if (!bestCell) break;
+    // For station #1 (no existing stations) any free cell is fine. For
+    // subsequent stations require the min-distance buffer; bail if no
+    // cell is far enough.
+    const hasExisting = nodeCells.some((n) => n.kind === 'station');
+    if (hasExisting && bestDist < MIN_STATION_DIST) break;
+    claimed.add(`${bestCell[0]},${bestCell[1]}`);
+    nodeCells.push({ gx: bestCell[0], gz: bestCell[1], kind: 'station', label: stationLabel() });
   }
 
   // ---------- 4. Place layout ----------
