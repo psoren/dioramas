@@ -13,6 +13,7 @@ import { SolarFarm } from '../entities/SolarFarm';
 import { ContainerDepot } from '../entities/ContainerDepot';
 import { CargoStop } from '../entities/SpaceTruck';
 import { TileTrack } from '../entities/TileTrack';
+import { TileTrackCrossing } from '../entities/TileTrackCrossing';
 import { MonorailTrain } from '../entities/MonorailTrain';
 import { SpaceTruck } from '../entities/SpaceTruck';
 import { StationLoader } from '../entities/StationLoader';
@@ -67,7 +68,8 @@ export type EntityKind =
   | 'apartmentBuilding'
   | 'solarFarm'
   | 'containerDepot'
-  | 'tileTrack';
+  | 'tileTrack'
+  | 'tileTrackCrossing';
 
 export interface SceneEntitySpec {
   id: string;
@@ -99,6 +101,13 @@ export interface SceneEntitySpec {
   destinationIds?: string[];
   /** For tileTrack: explicit rectangle layout in grid coords. */
   rectangle?: { gx0: number; gz0: number; gx1: number; gz1: number };
+  /** For tileTrackCrossing: which trains share the cell, with cell + priority. */
+  crossingTrains?: Array<{
+    trainId: string;
+    trackId: string;
+    cell: [number, number];
+    priority: number;
+  }>;
 }
 
 export interface BuiltSceneEntity {
@@ -170,6 +179,42 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
     t: 0.0,
     cars: 0,
     carSpacing: 0,
+  },
+  // Express track: a wide flat rectangle crossing through the main loop's
+  // east and west sides. Sharing cells (-2,-1) and (2,-1) with main, plus
+  // (-2,1) and (2,1) on its S edge.
+  {
+    id: 'express-tile-track',
+    kind: 'tileTrack',
+    position: [0, 0.02, 0],
+    rectangle: { gx0: -4, gz0: -1, gx1: 4, gz1: 1 },
+  },
+  {
+    id: 'express-tile-train',
+    kind: 'monorailTrain',
+    tileTrackId: 'express-tile-track',
+    speed: 0.055,
+    t: 0.25,
+    cars: 0,
+    carSpacing: 0,
+  },
+  // Intersection at the cell shared between main's W edge and express's N edge.
+  // Main train has higher priority — express yields when main is in the cell.
+  {
+    id: 'crossing-w-mid',
+    kind: 'tileTrackCrossing',
+    crossingTrains: [
+      { trainId: 'main-tile-train',    trackId: 'main-tile-track',    cell: [-2, -1], priority: 2 },
+      { trainId: 'express-tile-train', trackId: 'express-tile-track', cell: [-2, -1], priority: 1 },
+    ],
+  },
+  {
+    id: 'crossing-e-mid',
+    kind: 'tileTrackCrossing',
+    crossingTrains: [
+      { trainId: 'main-tile-train',    trackId: 'main-tile-track',    cell: [2, -1], priority: 2 },
+      { trainId: 'express-tile-train', trackId: 'express-tile-track', cell: [2, -1], priority: 1 },
+    ],
   },
 ];
 
@@ -299,6 +344,17 @@ export function buildSceneEntity(
         groundY: 0.02,
         speed: 0.5 + ((spec.t ?? 0) % 0.5),
       });
+    case 'tileTrackCrossing': {
+      if (!spec.crossingTrains) throw new Error('tileTrackCrossing needs crossingTrains');
+      const trains = spec.crossingTrains.map(({ trainId, trackId, cell, priority }) => {
+        const train = registry.get(trainId);
+        const track = registry.get(trackId);
+        if (!(train instanceof MonorailTrain)) throw new Error(`crossingTrains: ${trainId} is not a MonorailTrain`);
+        if (!(track instanceof TileTrack)) throw new Error(`crossingTrains: ${trackId} is not a TileTrack`);
+        return { train, track, cell, priority };
+      });
+      return new TileTrackCrossing({ id: spec.id, trains });
+    }
     case 'crossRouteIntersection': {
       const crossing = crossRouteCrossings.find((c) => c.id === spec.crossingId);
       if (!crossing) throw new Error(`No cross-route crossing found with id "${spec.crossingId ?? ''}"`);
