@@ -96,11 +96,19 @@ const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTe
 let randomTrack: TileTrack | undefined;
 function randomizeTrack(): void {
   if (randomTrack) sim.remove(randomTrack);
-  randomTrack = sim.add(new TileTrack({
-    position: [0, 0.02, 0],
-    extruded: { iterations: 4, bridges: 1 },
-    seed: Math.floor(Math.random() * 1_000_000),
-  }));
+  // 40% chance: figure-8 with a self-crossing (CROSS_NESW handles routing
+  // for both perpendicular passes). Otherwise the extruded random shape
+  // with a ramp bridge — gives a steady mix of curves, bumps, and
+  // intersections across clicks.
+  const useFigure8 = Math.random() < 0.4;
+  const opts = useFigure8
+    ? { position: [0, 0.02, 0] as [number, number, number], template: 'figure-8' }
+    : {
+        position: [0, 0.02, 0] as [number, number, number],
+        extruded: { iterations: 4, bridges: 1 },
+        seed: Math.floor(Math.random() * 1_000_000),
+      };
+  randomTrack = sim.add(new TileTrack(opts));
 }
 
 // ----- UI -----

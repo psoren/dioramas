@@ -179,6 +179,22 @@ describe('extruded random shape generator', () => {
     }
   });
 
+  it('figure-8 template places a CROSS_NESW at the self-crossing cell', () => {
+    // The figure-8 walk visits one cell twice — placePolygonLoop should
+    // accumulate both perpendicular passes into one CROSS_NESW with the
+    // multi-entry routing map. Catches regressions where duplicate-cell
+    // handling silently degrades back to single-tile placement.
+    const layout = new TrackLayout();
+    const tpl = LOOP_TEMPLATES.find((t) => t.name === 'figure-8')!;
+    const { start, startEntry } = placeWalkLoop(layout, tpl.steps);
+    const crossings = layout.tiles().filter((t) => t.def.kind === 'cross-nesw');
+    expect(crossings.length).toBe(1);
+    // The crossing tile must carry routing for both entries it'll see.
+    expect(crossings[0]!.routing).toBeDefined();
+    expect(crossings[0]!.routing!.size).toBe(2);
+    expect(() => layout.buildLoop(start, startEntry)).not.toThrow();
+  });
+
   it('bridge insertion never places a ramp on a corner (200 seeds)', () => {
     // Regression: findStraightRuns was including the turn cell at the
     // end of each run, so a ramp could land on a corner cell and the

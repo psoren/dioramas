@@ -5,6 +5,7 @@ import {
   Rotation,
   STRAIGHT_NS,
   CURVE_NE,
+  CROSS_NESW,
   RAMP_NS,
   ELEVATED_STRAIGHT_NS,
   TILE_SIZE,
@@ -316,22 +317,54 @@ export function placePolygonLoop(
     throw new Error('polygon loop needs at least 4 cells');
   }
   const n = cells.length;
+  // Collect (entry, exit) per UNIQUE cell. A cell visited more than once
+  // is a crossing — its accumulated routing becomes the CROSS_NESW's
+  // entry→exit map.
+  type Visit = { entry: Direction; exit: Direction };
+  const cellVisits = new Map<string, { gx: number; gz: number; visits: Visit[] }>();
   for (let i = 0; i < n; i++) {
     const [gx, gz] = cells[i]!;
     const [pgx, pgz] = cells[(i - 1 + n) % n]!;
     const [ngx, ngz] = cells[(i + 1) % n]!;
-    const arrival = dirFromTo(pgx, pgz, gx, gz);
-    const departure = dirFromTo(gx, gz, ngx, ngz);
-    const entry = opposite(arrival);
-    const exit = departure;
-    const override = overrides?.get(`${gx},${gz}`);
+    const entry = opposite(dirFromTo(pgx, pgz, gx, gz));
+    const exit = dirFromTo(gx, gz, ngx, ngz);
+    const key = `${gx},${gz}`;
+    let info = cellVisits.get(key);
+    if (!info) {
+      info = { gx, gz, visits: [] };
+      cellVisits.set(key, info);
+    }
+    info.visits.push({ entry, exit });
+  }
+
+  for (const info of cellVisits.values()) {
+    const cellKey = `${info.gx},${info.gz}`;
+    const override = overrides?.get(cellKey);
     if (override) {
-      layout.place(gx, gz, override.def, override.rotation, override.routing);
-    } else {
+      // Overrides assume a single-visit cell. Crossings can't be overridden
+      // because the override doesn't carry multi-routing — fall through to
+      // CROSS handling if both apply.
+      if (info.visits.length === 1) {
+        layout.place(info.gx, info.gz, override.def, override.rotation, override.routing);
+        continue;
+      }
+    }
+    if (info.visits.length === 1) {
+      const { entry, exit } = info.visits[0]!;
       const { def, rotation } = pickStraightOrCurve(entry, exit);
-      layout.place(gx, gz, def, rotation);
+      layout.place(info.gx, info.gz, def, rotation);
+    } else if (info.visits.length === 2) {
+      // Two perpendicular passes → CROSS_NESW with both routes baked in.
+      const routing = new Map<Direction, Direction>();
+      for (const v of info.visits) routing.set(v.entry, v.exit);
+      layout.place(info.gx, info.gz, CROSS_NESW, 0, routing);
+    } else {
+      throw new Error(
+        `Cell (${info.gx},${info.gz}) visited ${info.visits.length} times — only 1 or 2 supported`,
+      );
     }
   }
+
   const [pgx, pgz] = cells[n - 1]!;
   const [gx0, gz0] = cells[0]!;
   const startEntry = opposite(dirFromTo(pgx, pgz, gx0, gz0));
@@ -394,6 +427,9 @@ export const LOOP_TEMPLATES: ReadonlyArray<LoopTemplate> = [
   { name: 'L-small', steps: [['E', 2], ['S', 1], ['E', 1], ['S', 1], ['W', 3], ['N', 2]] },
   { name: 'U-corridor', steps: [['E', 3], ['S', 4], ['E', 1], ['S', 1], ['W', 4], ['N', 5]] },
   { name: 'zigzag', steps: [['E', 2], ['S', 1], ['E', 2], ['S', 2], ['W', 2], ['N', 1], ['W', 2], ['N', 2]] },
+  // Self-crossing template: the (3,2) cell is visited twice and becomes a
+  // CROSS_NESW with routing for both perpendicular passes (E→W and S→N).
+  { name: 'figure-8', steps: [['E', 2], ['S', 2], ['W', 4], ['S', 2], ['E', 2], ['N', 4]] },
 ];
 
 /** Pick a random template and place it. */
