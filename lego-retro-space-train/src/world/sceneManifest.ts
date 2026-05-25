@@ -91,9 +91,10 @@ export interface SceneEntitySpec {
   cargoStops?: CargoStop[];
   /** For spaceTruck: start the truck with a cargo container shown. */
   startWithCargo?: boolean;
-  /** For monorailTrain: tile-track entity ID to attach to. Replaces routeId
-   *  for tile-system tracks. */
+  /** For monorailTrain or stationPlatform: tile-track entity ID to attach to. */
   tileTrackId?: string;
+  /** For stationPlatform: which tile cell on `tileTrackId` to attach to. */
+  cell?: [number, number];
 }
 
 export interface BuiltSceneEntity {
@@ -123,6 +124,10 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
     carSpacing: 0.05,
     telemetry: true,
   },
+  // First tile-cell-based station. Sits beside the north-edge straight
+  // at cell (0, -2). Position + heading derived from the tile track's
+  // layout (no hand-picked coords).
+  { id: 'station-north', kind: 'stationPlatform', tileTrackId: 'main-tile-track', cell: [0, -2] },
 ];
 
 export function buildSceneEntity(
@@ -139,6 +144,9 @@ export function buildSceneEntity(
     case 'commandCentre':
       return new CommandCentre();
     case 'stationPlatform':
+      if (spec.tileTrackId && spec.cell) {
+        return new StationPlatform(stationPlatformOnTile(spec, registry));
+      }
       return new StationPlatform(stationPlatformOptions(spec));
     case 'elevator':
       return new Elevator();
@@ -271,6 +279,41 @@ function stationPlatformOptions(spec: SceneEntitySpec): { position?: THREE.Vecto
     position: station.position,
     heading: Math.atan2(q.x, q.z),
   };
+}
+
+/** Distance (units) from the rail centreline to the station platform's centre. */
+const STATION_LATERAL_OFFSET = 1.15;
+/** Platform Y so it sits on the baseplate. */
+const STATION_Y = 0.32;
+
+function stationPlatformOnTile(
+  spec: SceneEntitySpec,
+  registry: ReadonlyMap<string, Entity>,
+): { position: THREE.Vector3Tuple; heading: number } {
+  const tt = registry.get(spec.tileTrackId!);
+  if (!(tt instanceof TileTrack)) {
+    throw new Error(`stationPlatform tileTrackId "${spec.tileTrackId}" must point at a TileTrack`);
+  }
+  const [gx, gz] = spec.cell!;
+  const span = tt.loop.tileSpans.find((s) => s.gridX === gx && s.gridZ === gz);
+  if (!span) {
+    throw new Error(`No tile at cell (${gx},${gz}) on tileTrack "${spec.tileTrackId}"`);
+  }
+  // Sample the curve at the cell's midpoint t for stable platform placement
+  // regardless of which port the train enters from.
+  const tMid = (span.tStart + span.tEnd) / 2;
+  const localP = tt.path.getPointAt(tMid);
+  const tan = tt.path.getTangentAt(tMid);
+  // Left of the train direction (perpendicular, looking down +Y). Most loops
+  // are CCW so "left" is outside the loop — natural side for passengers.
+  const perpX = tan.z;
+  const perpZ = -tan.x;
+  const trackPos = tt.object3d.position;
+  const px = trackPos.x + localP.x + perpX * STATION_LATERAL_OFFSET;
+  const pz = trackPos.z + localP.z + perpZ * STATION_LATERAL_OFFSET;
+  // Heading aligns the platform's long axis (local +X) with the track tangent.
+  const heading = Math.atan2(tan.x, tan.z) - Math.PI / 2;
+  return { position: [px, STATION_Y, pz], heading };
 }
 
 export function signedSpeed(spec: SceneEntitySpec, fallback: number): number {
