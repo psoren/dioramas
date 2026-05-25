@@ -13,6 +13,7 @@ import {
   generateTemplateLoop,
   generateExtrudedLoop,
   generateRandomFigure8,
+  generateTwistedLoop,
   placeWalkLoop,
   placeRampBridgeLoop,
 } from '../world/trackLayout';
@@ -53,6 +54,9 @@ export interface TileTrackOptions {
   rampBridge?: { w: number; h: number };
   /** Generate a random parametric asymmetric figure-8 with one self-crossing. */
   randomFigure8?: boolean;
+  /** Extruded loop + N twist operations. Each twist tries to add one
+   *  CROSS_NESW; `targetCrossings` is a best-effort upper bound. */
+  twisted?: { iterations?: number; targetCrossings?: number };
   /** Seed for the random generator (used by template/extruded/random modes). */
   seed?: number;
 }
@@ -95,6 +99,14 @@ export class TileTrack implements Entity {
     } else if (opts.randomFigure8) {
       const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
       ({ start, startEntry } = generateRandomFigure8(this.layout, rng));
+    } else if (opts.twisted) {
+      const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
+      ({ start, startEntry } = generateTwistedLoop(
+        this.layout,
+        rng,
+        opts.twisted.iterations ?? 2,
+        opts.twisted.targetCrossings ?? 2,
+      ));
     } else if (opts.randomBounds) {
       const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
       ({ start, startEntry } = generateRandomRectangleLoop(this.layout, opts.randomBounds, rng));

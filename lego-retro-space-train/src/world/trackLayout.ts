@@ -379,6 +379,27 @@ export function placePolygonLoop(
  */
 export type WalkStep = readonly [Direction, number];
 
+/**
+ * Compute the (gx, gz) origin needed to centre the walk's bounding box
+ * around (0, 0). Pass the result as `placeWalkLoop`'s `origin` argument.
+ */
+export function centeredOrigin(steps: ReadonlyArray<WalkStep>): [number, number] {
+  let cx = 0, cz = 0;
+  let minX = 0, maxX = 0, minZ = 0, maxZ = 0;
+  for (const [dir, count] of steps) {
+    const [vx, vz] = dirVector(dir);
+    for (let i = 0; i < count; i++) {
+      cx += vx;
+      cz += vz;
+      if (cx < minX) minX = cx;
+      if (cx > maxX) maxX = cx;
+      if (cz < minZ) minZ = cz;
+      if (cz > maxZ) maxZ = cz;
+    }
+  }
+  return [-Math.round((minX + maxX) / 2), -Math.round((minZ + maxZ) / 2)];
+}
+
 export function placeWalkLoop(
   layout: TrackLayout,
   steps: ReadonlyArray<WalkStep>,
@@ -453,16 +474,18 @@ export function figure8Steps(
   ];
 }
 
-/** Pick random lobe sizes 2-4 cells per side and build a figure-8. */
+/** Pick random lobe sizes 3-5 cells per side and build a figure-8,
+ *  centred around the origin so the loop sits on the middle of the plate. */
 export function generateRandomFigure8(
   layout: TrackLayout,
   rng: () => number = Math.random,
 ): { start: PlacedTile; startEntry: Direction } {
-  const w1 = 2 + Math.floor(rng() * 3);
-  const h1 = 2 + Math.floor(rng() * 3);
-  const w2 = 2 + Math.floor(rng() * 3);
-  const h2 = 2 + Math.floor(rng() * 3);
-  return placeWalkLoop(layout, figure8Steps(w1, h1, w2, h2));
+  const w1 = 3 + Math.floor(rng() * 3);
+  const h1 = 3 + Math.floor(rng() * 3);
+  const w2 = 3 + Math.floor(rng() * 3);
+  const h2 = 3 + Math.floor(rng() * 3);
+  const steps = figure8Steps(w1, h1, w2, h2);
+  return placeWalkLoop(layout, steps, centeredOrigin(steps));
 }
 
 /** Pick a random template and place it. */
@@ -544,6 +567,72 @@ function attemptExtrusion(
   ];
 }
 
+/**
+ * Walk the steps and classify the result. Returns:
+ *   - `cellVisits`: per-cell list of (entry, exit) visits, mirroring what
+ *     `placePolygonLoop` produces internally. Useful for validating
+ *     candidate walks before tile placement.
+ *   - `crossings`: count of cells visited exactly twice with a valid
+ *     perpendicular routing (entries + exits cover {N,E,S,W}).
+ *   - `invalidCells`: cells that break the contract (visited 3+ times, or
+ *     visited 2x without all 4 directions distinct). Empty on a valid walk.
+ *
+ * This is the source of truth for "can this walk be turned into a layout".
+ */
+type Visit = { entry: Direction; exit: Direction };
+export interface WalkAnalysis {
+  cellVisits: Map<string, Visit[]>;
+  crossings: number;
+  invalidCells: string[];
+}
+export function analyzeWalk(steps: ReadonlyArray<WalkStep>): WalkAnalysis {
+  // Expand to cell list with per-cell entries/exits.
+  let cx = 0, cz = 0;
+  const cells: Array<[number, number]> = [[cx, cz]];
+  for (const [dir, count] of steps) {
+    const [vx, vz] = dirVector(dir);
+    for (let i = 0; i < count; i++) {
+      cx += vx;
+      cz += vz;
+      cells.push([cx, cz]);
+    }
+  }
+  // Last cell is the closure back to origin; drop the duplicate.
+  cells.pop();
+  const n = cells.length;
+  const visits = new Map<string, Visit[]>();
+  for (let i = 0; i < n; i++) {
+    const [gx, gz] = cells[i]!;
+    const [pgx, pgz] = cells[(i - 1 + n) % n]!;
+    const [ngx, ngz] = cells[(i + 1) % n]!;
+    const entry = opposite(dirFromTo(pgx, pgz, gx, gz));
+    const exit = dirFromTo(gx, gz, ngx, ngz);
+    const key = `${gx},${gz}`;
+    let list = visits.get(key);
+    if (!list) {
+      list = [];
+      visits.set(key, list);
+    }
+    list.push({ entry, exit });
+  }
+  let crossings = 0;
+  const invalidCells: string[] = [];
+  for (const [key, list] of visits) {
+    if (list.length === 1) continue;
+    if (list.length !== 2) { invalidCells.push(key); continue; }
+    // Both visits must be straight-through (entry == opposite(exit)) for a
+    // CROSS_NESW, AND the two visits must be perpendicular to each other.
+    // Equivalent shortcut: the 4 ports used (entry1, exit1, entry2, exit2)
+    // must be exactly {N,E,S,W}.
+    const used = new Set<Direction>([
+      list[0]!.entry, list[0]!.exit, list[1]!.entry, list[1]!.exit,
+    ]);
+    if (used.size === 4) crossings++;
+    else invalidCells.push(key);
+  }
+  return { cellVisits: visits, crossings, invalidCells };
+}
+
 /** True iff walking `steps` from origin never revisits a cell (except for
  *  the final return to origin that closes the loop). Used to reject
  *  extrusion candidates whose bump collides with the existing path. */
@@ -587,16 +676,141 @@ export function generateExtrudedLoop(
   iterations = 3,
   bridges = 0,
 ): { start: PlacedTile; startEntry: Direction; steps: ReadonlyArray<WalkStep> } {
-  const w = 3 + Math.floor(rng() * 3);
-  const h = 2 + Math.floor(rng() * 3);
+  // Sized for a 28-unit / ~11-tile plate: 6-8 cells wide × 5-7 tall base,
+  // plus a few extrusions, fills most of the baseplate.
+  const w = 6 + Math.floor(rng() * 3);
+  const h = 5 + Math.floor(rng() * 3);
   let steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
   for (let i = 0; i < iterations; i++) {
     const next = extrudeRandomSegment(steps, rng);
     if (next) steps = next;
   }
-  const overrides = buildBridgeOverrides(steps, rng, bridges);
-  const { start, startEntry } = placeWalkLoop(layout, steps, [0, 0], overrides);
+  const origin = centeredOrigin(steps);
+  const overrides = buildBridgeOverrides(steps, rng, bridges, origin);
+  const { start, startEntry } = placeWalkLoop(layout, steps, origin, overrides);
   return { start, startEntry, steps };
+}
+
+// ---------------------------------------------------------------------------
+// Twist operator: take a closed walk that has K crossings, return a new walk
+// with K+1 crossings. Each call inserts a small "dip" detour into one
+// straight segment such that the detour and the original straight share
+// exactly one cell, with perpendicular routings — a valid CROSS_NESW.
+//
+// Dip shape for a horizontal straight `[E, n]`:
+//
+//        . . X . X . . .          - = original straight (z=0)
+//        . . | . | . . .          | = dip outward leg (z=-1)
+//        - - - * - - - -          X = dip horizontal leg above (z=-1)
+//        . . | . | . . .          # = dip horizontal leg below (z=1)
+//        . . # # # . . .          * = the new crossing cell (z=0)
+//
+// The dip extends 1 cell perpendicular-outward (CCW) and 1 cell
+// perpendicular-inward, so it bumps slightly outside AND slightly inside
+// the polygon. The "inside" cells (3 of them) are what risk colliding
+// with the rest of the walk — analyzeWalk catches that as invalid.
+// ---------------------------------------------------------------------------
+
+/**
+ * Try once to attach a dip to one of the eligible straight segments. The
+ * caller is responsible for validating the result with `analyzeWalk`.
+ * Returns null if no segment is long enough.
+ */
+function attemptTwist(
+  steps: ReadonlyArray<WalkStep>,
+  rng: () => number,
+  minSegmentLen: number,
+): WalkStep[] | null {
+  // Dip eats up `wu - wd + 1 = 2` cells from the segment's length and
+  // needs at least 1 cell on each side: minimum count = 1 + 2 + 1 = 4.
+  const eligible: number[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    if (steps[i]![1] >= minSegmentLen) eligible.push(i);
+  }
+  if (eligible.length === 0) return null;
+  const idx = eligible[Math.floor(rng() * eligible.length)]!;
+  const [dir, count] = steps[idx]!;
+  const wu = 2;
+  const wd = 1;
+  // j is the lead-in length before the dip starts. Tail length =
+  // count - j - wu + wd = count - j - 1. Need tail ≥ 1, so j ≤ count - 2.
+  // Also need j ≥ 1.
+  const j = 1 + Math.floor(rng() * (count - 2));
+  const tail = count - j - wu + wd;
+  if (tail < 1) return null;
+  const out = perpCCW(dir);     // outward of the dip (CCW = "left" of walk)
+  const back = opposite(out);   // inward — the leg that pierces the original
+  const rev = opposite(dir);
+  return [
+    ...steps.slice(0, idx),
+    [dir, j],
+    [out, 1],
+    [dir, wu],
+    [back, 2],
+    [rev, wd],
+    [out, 1],
+    [dir, tail],
+    ...steps.slice(idx + 1),
+  ];
+}
+
+/**
+ * Add exactly one crossing to `steps`. Returns null if no eligible
+ * segment exists OR every attempted dip collides with the rest of the
+ * walk. Multiple attempts pick different segments.
+ */
+export function twistRandomSegment(
+  steps: ReadonlyArray<WalkStep>,
+  rng: () => number = Math.random,
+  minSegmentLen = 4,
+  maxAttempts = 16,
+): WalkStep[] | null {
+  const baseline = analyzeWalk(steps);
+  if (baseline.invalidCells.length > 0) return null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = attemptTwist(steps, rng, minSegmentLen);
+    if (!candidate) return null;
+    const a = analyzeWalk(candidate);
+    if (a.invalidCells.length === 0 && a.crossings === baseline.crossings + 1) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a randomly-shaped loop with at least `targetCrossings` self-
+ * crossings. Starts from a small rectangle, applies a few extrusions for
+ * organic shape, then applies twists until the target is hit (or we run
+ * out of eligible segments). Always returns a valid walk — the actual
+ * crossings count is included in the result so the caller can adapt.
+ */
+export function generateTwistedLoop(
+  layout: TrackLayout,
+  rng: () => number = Math.random,
+  iterations = 3,
+  targetCrossings = 2,
+): { start: PlacedTile; startEntry: Direction; steps: ReadonlyArray<WalkStep>; crossings: number } {
+  // Sized for the 28-unit plate: 7-9 wide × 6-8 tall starting box. Twists
+  // need 4-cell straights and consume interior space, so we start bigger
+  // than the pure-extrude default.
+  const w = 7 + Math.floor(rng() * 3);
+  const h = 6 + Math.floor(rng() * 3);
+  let steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
+  for (let i = 0; i < iterations; i++) {
+    const next = extrudeRandomSegment(steps, rng);
+    if (next) steps = next;
+  }
+  let crossings = 0;
+  // Each twist tries hard; if none succeed we bail rather than spin forever.
+  for (let i = 0; i < targetCrossings; i++) {
+    const next = twistRandomSegment(steps, rng);
+    if (!next) break;
+    steps = next;
+    crossings++;
+  }
+  const { start, startEntry } = placeWalkLoop(layout, steps, centeredOrigin(steps));
+  return { start, startEntry, steps, crossings };
 }
 
 // --- Bridge insertion --------------------------------------------------
@@ -666,10 +880,12 @@ function buildBridgeOverrides(
   steps: ReadonlyArray<WalkStep>,
   rng: () => number,
   bridgeCount: number,
+  origin: readonly [number, number] = [0, 0],
 ): PolygonOverrides | undefined {
   if (bridgeCount <= 0) return undefined;
-  // Expand steps to cell list — mirrors placeWalkLoop's logic.
-  let cx = 0, cz = 0;
+  // Expand steps to cell list — mirrors placeWalkLoop's logic. Must use the
+  // same origin as the placer so the override keys match the placed cells.
+  let cx = origin[0], cz = origin[1];
   const cells: Array<[number, number]> = [[cx, cz]];
   for (const [dir, count] of steps) {
     const [vx, vz] = dirVector(dir);

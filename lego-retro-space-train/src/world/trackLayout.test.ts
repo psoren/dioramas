@@ -7,6 +7,9 @@ import {
   extrudeRandomSegment,
   generateExtrudedLoop,
   generateRandomFigure8,
+  generateTwistedLoop,
+  twistRandomSegment,
+  analyzeWalk,
   LOOP_TEMPLATES,
   WalkStep,
 } from './trackLayout';
@@ -258,6 +261,95 @@ describe('layout cell-uniqueness invariants', () => {
       expect(crossings[0]!.routing!.size).toBe(2);
       expect(() => layout.buildLoop(start, startEntry), `seed ${seed}`).not.toThrow();
     }
+  });
+});
+
+describe('twist operator', () => {
+  function deterministicRng(seed: number): () => number {
+    let s = seed;
+    return () => {
+      s = (s * 16807) % 2147483647;
+      return s / 2147483647;
+    };
+  }
+
+  it('analyzeWalk classifies a clean rectangle as zero crossings', () => {
+    const a = analyzeWalk([['E', 4], ['S', 3], ['W', 4], ['N', 3]]);
+    expect(a.crossings).toBe(0);
+    expect(a.invalidCells).toEqual([]);
+  });
+
+  it('analyzeWalk classifies the figure-8 template as exactly one crossing', () => {
+    const tpl = LOOP_TEMPLATES.find((t) => t.name === 'figure-8')!;
+    const a = analyzeWalk(tpl.steps);
+    expect(a.crossings).toBe(1);
+    expect(a.invalidCells).toEqual([]);
+  });
+
+  it('twistRandomSegment adds exactly one crossing on top of an extruded loop', () => {
+    // Catches the "single dip silently produces 0 or 2 crossings" failure
+    // mode — the dip pattern is fragile because the inward leg crosses the
+    // original straight at a specific cell and a bad parameterisation would
+    // either miss it or hit it twice.
+    const rng = deterministicRng(7);
+    const base: WalkStep[] = [['E', 8], ['S', 5], ['W', 8], ['N', 5]];
+    const before = analyzeWalk(base);
+    expect(before.crossings).toBe(0);
+    const next = twistRandomSegment(base, rng);
+    expect(next).not.toBeNull();
+    const after = analyzeWalk(next!);
+    expect(after.invalidCells).toEqual([]);
+    expect(after.crossings).toBe(1);
+  });
+
+  it('repeated twists accumulate crossings (3 stacked)', () => {
+    // Stacking twists is the path to pretzel-class layouts. If each twist
+    // doesn't compose correctly on top of the previous, the second call
+    // would either fail validation or produce an invalid 4-port routing.
+    const rng = deterministicRng(11);
+    let steps: ReadonlyArray<WalkStep> = [['E', 10], ['S', 6], ['W', 10], ['N', 6]];
+    for (let i = 0; i < 3; i++) {
+      const next = twistRandomSegment(steps, rng);
+      if (!next) break;
+      steps = next;
+    }
+    const a = analyzeWalk(steps);
+    expect(a.invalidCells).toEqual([]);
+    expect(a.crossings).toBeGreaterThanOrEqual(1);
+  });
+
+  it('generateTwistedLoop produces walkable layouts across 200 seeds', () => {
+    // End-to-end: every generated twisted loop must close, validate, and
+    // be walkable by buildLoop. Any invalid CROSS routing or cell collision
+    // would throw inside placePolygonLoop or buildLoop.
+    for (let seed = 1; seed <= 200; seed++) {
+      const layout = new TrackLayout();
+      const rng = deterministicRng(seed);
+      const { start, startEntry, steps, crossings } = generateTwistedLoop(layout, rng, 2, 2);
+      // Validate the walk separately for a clearer error message on failure.
+      const a = analyzeWalk(steps);
+      expect(a.invalidCells, `seed ${seed} invalid cells`).toEqual([]);
+      // At least sometimes we should hit the target; never exceed it.
+      expect(crossings).toBeLessThanOrEqual(2);
+      // Number of CROSS_NESW tiles in the layout must match the analyzed count.
+      const crossTiles = layout.tiles().filter((t) => t.def.kind === 'cross-nesw');
+      expect(crossTiles.length, `seed ${seed} cross-tile count`).toBe(crossings);
+      expect(() => layout.buildLoop(start, startEntry), `seed ${seed}`).not.toThrow();
+    }
+  });
+
+  it('generateTwistedLoop hits crossings ≥ 1 the majority of the time', () => {
+    // Sanity: the whole point of the twisted variant is to add crossings,
+    // so most seeds should successfully twist at least once. A regression
+    // that breaks attemptTwist would show up as crossings near zero.
+    let successes = 0;
+    for (let seed = 1; seed <= 200; seed++) {
+      const layout = new TrackLayout();
+      const rng = deterministicRng(seed);
+      const { crossings } = generateTwistedLoop(layout, rng, 2, 2);
+      if (crossings >= 1) successes++;
+    }
+    expect(successes).toBeGreaterThan(150); // > 75%
   });
 });
 
