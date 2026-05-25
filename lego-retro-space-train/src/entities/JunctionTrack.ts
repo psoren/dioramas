@@ -143,7 +143,7 @@ export class JunctionTrack implements Entity {
       const sideAFree = sideHasNoTrack(layout, node.gridX, node.gridZ, candA);
       const sideBFree = sideHasNoTrack(layout, node.gridX, node.gridZ, candB);
       const chosen = sideAFree ? candA : sideBFree ? candB : candA;
-      const offset = TILE_SIZE * 0.7;
+      const offset = TILE_SIZE * 0.55; // platform centre ~1.3u from rail; near edge ~1u
       const px = node.pos.x + chosen[0] * offset;
       const py = node.pos.y;
       const pz = node.pos.z + chosen[1] * offset;

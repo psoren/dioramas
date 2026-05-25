@@ -237,37 +237,16 @@ export function generateRandomGraphTrack(
 
 function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | null {
   // ---------- 1. Random base shape ----------
-  // Either a centred rectangle (with optional outward bumps) or a clean
-  // parametric figure-8 (two lobes meeting at one CROSS — naturally
-  // shaped without the "lollipop" knot the twist op produces on small
-  // segments). Sized to fit the 28-unit plate (~11 cells per side).
-  const useFigure8 = rng() < 0.35;
-  let steps: WalkStep[];
-  if (useFigure8) {
-    // Larger lobes so the figure-8 fills more of the plate (was 3-4 ×
-    // 2-3, total bbox ~7×5; now 4-5 × 3-4, total bbox ~9×7).
-    const w1 = 4 + Math.floor(rng() * 2); // 4-5
-    const h1 = 3 + Math.floor(rng() * 2); // 3-4
-    const w2 = 4 + Math.floor(rng() * 2);
-    const h2 = 3 + Math.floor(rng() * 2);
-    steps = [
-      ['E', w1],
-      ['S', h1],
-      ['W', w1 + w2],
-      ['S', h2],
-      ['E', w2],
-      ['N', h1 + h2],
-    ];
-  } else {
-    const w = 7 + Math.floor(rng() * 3); // 7-9
-    const h = 5 + Math.floor(rng() * 3); // 5-7
-    steps = [['E', w], ['S', h], ['W', w], ['N', h]];
-    // Outward bumps for organic shape variety.
-    const extrusions = Math.floor(rng() * 3); // 0-2
-    for (let i = 0; i < extrusions; i++) {
-      const next = extrudeRandomSegment(steps, rng, /*minLen*/ 4, /*maxBumpDepth*/ 1);
-      if (next) steps = next;
-    }
+  // Centred rectangle with optional outward bumps. (Figure-8 base was
+  // tried but its small lobes read as tight knots even at 4-5 cells per
+  // side; removed.) Intersection variety comes from sidings instead.
+  const w = 7 + Math.floor(rng() * 3); // 7-9
+  const h = 5 + Math.floor(rng() * 3); // 5-7
+  let steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
+  const extrusions = Math.floor(rng() * 3); // 0-2
+  for (let i = 0; i < extrusions; i++) {
+    const next = extrudeRandomSegment(steps, rng, /*minLen*/ 4, /*maxBumpDepth*/ 1);
+    if (next) steps = next;
   }
   const origin = centeredOrigin(steps);
 
@@ -296,6 +275,19 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   }
   const crossCellKeys = new Set<string>();
   for (const [k, v] of visitCount) if (v >= 2) crossCellKeys.add(k);
+  // Identify pass-through cells (entry dir == exit dir). Stations must
+  // sit on these — a curve cell has the track cutting the corner rather
+  // than passing through the cell centre, so a platform offset from
+  // centre lands ~2 tiles away from the actual rails.
+  const straightCellKeys = new Set<string>();
+  for (let i = 0; i < cells.length; i++) {
+    const [cx, cz] = cells[i]!;
+    const [pcx, pcz] = cells[(i - 1 + cells.length) % cells.length]!;
+    const [ncx, ncz] = cells[(i + 1) % cells.length]!;
+    if (cx - pcx === ncx - cx && cz - pcz === ncz - cz) {
+      straightCellKeys.add(`${cx},${cz}`);
+    }
+  }
 
   // Bbox check: reject if the walk overruns the plate (±5 cells from
   // origin = 11×11 cells on the 28-unit baseplate). Caller retries.
@@ -393,7 +385,11 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     let bestCell: readonly [number, number] | null = null;
     let bestDist = -1;
     for (const [cx, cz] of cells) {
-      if (claimed.has(`${cx},${cz}`)) continue;
+      const key = `${cx},${cz}`;
+      if (claimed.has(key)) continue;
+      // Stations only on pass-through (straight) cells — curve cells
+      // have the track cutting through the corner, not the centre.
+      if (!straightCellKeys.has(key)) continue;
       let minDist = Infinity;
       for (const n of nodeCells) {
         if (n.kind !== 'station') continue;
