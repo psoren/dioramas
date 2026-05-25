@@ -1,184 +1,61 @@
-# Handoff
+# Handoff — Procgen track-tile system stripped to moon + 🎲 button
 
-## Project
+**Generated:** 2026-05-25T06:56Z · **CWD:** `~/github/dioramas/lego-retro-space-train` · **Branch:** `main`
 
-`lego-retro-space-visualizer` is a Vite + TypeScript + Three.js simulator for
-LEGO retro space scenes. It started as a LEGO 40786 Micro Command Centre
-visualizer and has been extended into a small expandable scene system with
-tracks, trains, loaders, stations, vehicles, astronauts, and other retro-space
-set-inspired models.
+## What this session was for
 
-Public repo:
+Built out the procedural tile-track system from primitive tiles → loop walker → templates → random shapes (extruded), ramp bridges, self-crossings via `CROSS_NESW`, and a runtime "🎲 Random track" HUD button. Then stripped the scene back to just the moon surface + a 28-unit baseplate so the random tracks are the focus. Last item before wrap: hand-designing multi-crossing closed walks (pretzel/trefoil) was non-trivial — deferred to a vault todo.
 
-https://github.com/psoren/lego-retro-space-visualizer
+## State right now
 
-## Run
+- Last action taken: pushed to `psoren/dioramas` main and added the multi-crossing todo to `~/obsidian/parker/inbox/TODO.md`.
+- Recently accomplished (most recent first):
+  - Killed twin-track overlap mode (stacked decks = visual mess, not real crossings); added 200-seed cell-uniqueness regression tests.
+  - Parametric asymmetric figure-8 generator (`generateRandomFigure8`) with random 2–4 cell lobes per side.
+  - Self-crossing layouts via `CROSS_NESW` auto-placement in `placePolygonLoop` when a cell is visited twice with perpendicular routings.
+  - Ramp bridge insertion in extruded generator + corner-cell ramp-placement bug fix.
+  - Runtime 🎲 button (no page reload) — adds/replaces a single random TileTrack.
+  - Scene stripped to moon + bigger baseplate (`BASE_SIZE 12 → 28`), event-feed panel removed.
+  - Moon rocks/craters scatter radius keyed to `sqrt(2) * BASE_SIZE + 2` so they don't poke through the plate.
+- Uncommitted changes: none. Working tree clean. Local + remote in sync at `3a63c14`.
+- Background tasks still running: none recently; user may have a dev server up on port 5176 — check with `lsof -i :5176` before starting another.
 
-```sh
-npm install
-npm run dev -- --host 127.0.0.1
-npm run typecheck
-npm run build
-```
+## Open TODOs
 
-Current local dev server has been using:
+1. **Multi-crossing track layouts** — full context in `~/obsidian/parker/inbox/TODO.md` (last entry). Three approaches sketched: (a) algorithmic "twist" operator that adds one CROSS per call on extruded loops; (b) hand-designed pretzel/trefoil templates in `LOOP_TEMPLATES`; (c) relax `isSelfAvoiding` in `extrudeRandomSegment` to allow perpendicular crossings only. Acceptance: occasional 2+ crossings per random track, all `CROSS_NESW` with valid routing, existing 26 tests stay green.
 
-```txt
-http://127.0.0.1:5174/
-```
+## Files of interest
 
-Port `5173` may already be used by another local project.
+- `src/world/trackLayout.ts` — generators (`generateExtrudedLoop`, `generateRandomFigure8`, `placeRampBridgeLoop`), the polygon walker (`placePolygonLoop` — handles multi-visit cells), `LOOP_TEMPLATES`, the t→tile lookup.
+- `src/world/trackTile.ts` — tile primitives (`STRAIGHT_NS`, `CURVE_NE`, `TEE_NES`, `CROSS_NESW`, `RAMP_NS`, `ELEVATED_STRAIGHT_NS`) and direction/rotation utilities.
+- `src/entities/TileTrack.ts` — renders a layout as deck + rails + conductor + cross-ties.
+- `src/main.ts` — random button wiring (`randomizeTrack`); two modes currently (figure-8 50% / extruded+bridge 50%).
+- `src/world/trackLayout.test.ts` — 26 tests, includes 200-seed regressions for self-intersection rejection and bridge-on-corner protection.
+- `DESIGN.md` — visual conventions (palette, scale, material rules, track-tile language).
+- `TASKS.md` — older project todo list (not where new todos go; see global CLAUDE.md).
+- `NOTES_BEFORE_MIGRATION.md` — snapshot of what was in the scene before the migration to tile system, in case anything needs to come back.
+- `HANDOFF-2026-05-24.md` — previous handoff, archived. Earlier state had the full LEGO scene with trains, stations, retro sets, etc.
 
-## Current Status
+## Gotchas
 
-Implemented:
+- "Add a todo" means `~/obsidian/parker/inbox/TODO.md`, never repo-local `TASKS.md`. Captured in global CLAUDE.md + memory.
+- Tests should test meaningful invariants (rotation math, closure, cell-uniqueness across many seeds) — not trivial assertions. Also in memory.
+- `MonorailTrain.update` overrides `PathVehicle.update` without calling super; it must explicitly call `advanceSpeed(dt)` so the eased-speed mechanism runs. Previous bug where trains sat still.
+- `placePolygonLoop` collects visits per cell, so a cell visited 2x → `CROSS_NESW` auto-placed; 3+ visits throws. Generators currently never produce 3+, but anything new must respect that.
+- The `routing?: Map<Direction, Direction>` on `PlacedTile` uses *effective* port directions (post-rotation), not base ports.
+- Centripetal CatmullRom parameterisation is required on the loop curve (`buildLoop`) — `catmullrom` mode produces overshoot that breaks the t→tile bbox lookup.
+- Dev server: `npm run dev -- --host 127.0.0.1 --port 5176` from this directory. Vite picks next free port if taken.
 
-- Manifest-driven scene construction in `src/world/sceneManifest.ts`.
-- Larger figure-eight monorail route with named stations and a central crossing
-  in `src/world/TrackPath.ts`.
-- Path-following vehicle base in `src/entities/PathVehicle.ts`.
-- Multi-car monorail train in `src/entities/MonorailTrain.ts`.
-- Station cargo loading/unloading behavior in `src/entities/StationLoader.ts`.
-- Track crossing reservation/hold logic in `src/entities/TrackController.ts`.
-- Road loop and moving space trucks.
-- Command centre with extra details: solar panel, interior hints, roof studs.
-- Elevator, station platforms, and animated micro astronauts.
-- Retro-space set-inspired models in `src/entities/retroSets.ts`:
-  - Micro Rocket Launchpad
-  - Galaxy Explorer-style flyover ship
-  - Galaxy Explorer-style rover
-  - Robot helper
-  - Blacktron-style cruiser
-  - Blacktron-style outpost
+## Suggested first action
 
-Last verified:
+1. Read this handoff (you are).
+2. Read the last entry in `~/obsidian/parker/inbox/TODO.md` for the multi-crossing context.
+3. `npm install && npm test` to confirm 26/26 tests pass on the current head.
+4. Then pick one of the three multi-crossing approaches from the todo and prototype it. Approach (b) — hand-designed pretzel template — is the lowest-risk starting point because the infrastructure already handles multi-visit cells; you just need a walk that produces the right cell list.
 
-- `npm run typecheck` passes.
-- `npm run build` passes.
-- Browser runtime had no app errors.
-- Latest screenshot path from verification: `/tmp/lego-visualizer-retrosets.png`.
+## Picking up if you're NOT Claude Code
 
-## Architecture
-
-Core contract:
-
-```ts
-interface Entity {
-  readonly object3d: THREE.Object3D;
-  update?(dt: number): void;
-  dispose?(): void;
-}
-```
-
-`Sim` owns the renderer, scene, camera, and entity list. It calls `update(dt)`
-on every entity each frame.
-
-Scene construction now flows through:
-
-```txt
-main.ts
-  -> defaultSceneManifest
-  -> buildSceneEntity(spec, registry)
-  -> sim.add(entity)
-```
-
-Use `targetId` / `targetIds` in manifest entries for behavior entities that
-need references to other entities, such as station loaders or track controllers.
-
-## Important Files
-
-- `src/main.ts` - bootstraps the scene from the manifest.
-- `src/sim/Sim.ts` - renderer, entity loop, camera, scene.
-- `src/world/sceneManifest.ts` - declarative scene contents.
-- `src/world/TrackPath.ts` - monorail route, stations, intersections.
-- `src/world/RoadPath.ts` - road loop for trucks.
-- `src/entities/PathVehicle.ts` - reusable closed-path vehicle base.
-- `src/entities/MonorailTrain.ts` - train mesh, cargo slots, cargo API.
-- `src/entities/StationLoader.ts` - crane/load/unload behavior.
-- `src/entities/TrackController.ts` - crossing reservation logic.
-- `src/entities/retroSets.ts` - additional retro-space set-inspired models.
-- `src/ui/hud.ts` / `src/ui/styles.css` - HUD and controls.
-
-## Known Rough Edges
-
-- The current track network is functional but still stylized. It is not a
-  physically accurate LEGO rail geometry.
-- Station/platform placement is manifest-driven, but station visuals may need
-  manual tuning as track routes change.
-- Track crossing logic is route-specific and currently models one central
-  shared crossing block.
-- The HUD still only tracks the telemetry vehicle, not all stations/trains.
-- Bundle-size warning is expected from Three.js:
-  chunks exceed 500 kB after minification.
-- `dist/` exists locally from builds and is ignored by `.gitignore`.
-
-## Adding A New Static Set Model
-
-1. Add a class implementing `Entity`, usually in `src/entities/retroSets.ts` or
-   a new entity file.
-2. Add a new `EntityKind` in `src/world/sceneManifest.ts`.
-3. Add a case in `buildSceneEntity`.
-4. Add a manifest entry with `position` and `heading`.
-
-## Adding A New Train Or Vehicle
-
-For route-following vehicles:
-
-- Extend `PathVehicle` or `TrackVehicle`.
-- Build mesh forward-facing along local `+X`.
-- Add a manifest kind and entry.
-
-For trains on the monorail:
-
-- Use `MonorailTrain`.
-- Point it at a `routeId`.
-- Stagger `t` values so trains do not start overlapped.
-- Add it to `TrackController.targetIds` if it should respect crossings.
-
-## Adding A Station
-
-1. Add a station object to `trackRoutes.main.stations` in `TrackPath.ts`.
-2. Add a `stationPlatform` manifest entry with the same `stationId`.
-3. Add a `stationLoader` manifest entry pointing at a train via `targetId`.
-
-Example:
-
-```ts
-{
-  id: 'new-loader',
-  kind: 'stationLoader',
-  routeId: 'main',
-  stationId: 'new-station',
-  targetId: 'main-train',
-}
-```
-
-## Verification Workflow
-
-Use:
-
-```sh
-npm run typecheck
-npm run build
-```
-
-For browser verification, open:
-
-```txt
-http://127.0.0.1:5174/
-```
-
-During previous work, browser screenshots were captured through Chrome DevTools
-Protocol using an isolated Chrome profile on port `9224`.
-
-## Suggested Next Work
-
-- Add a UI panel for toggling categories: command centre, monorail network,
-  Classic Space sets, Blacktron sets, vehicles, people.
-- Add labels or hover/click inspection for set-inspired models.
-- Improve station logic so loaders can choose trains dynamically instead of
-  being assigned to a fixed train.
-- Add proper block sections to the whole route, not only one crossing.
-- Make track routes data-only and move route generation helpers to a reusable
-  route builder.
-- Add tests for path reservation / station cargo behavior.
+- The codebase is plain TypeScript + Vite + Three.js. No Claude-specific deps.
+- Tests are vitest: `npm test` runs the suite, `npm run test:watch` for dev.
+- `~/.claude/CLAUDE.md` and `~/.claude/projects/-Users-parker-github-lego-retro-space-visualizer/memory/MEMORY.md` capture cross-session conventions worth reading if you're an LLM.
+- Monorepo root is `~/github/dioramas/`; sister project `coral-reef-diorama/` exists but is unrelated to this work.
