@@ -42,6 +42,7 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       </div>
       <div class="sep"></div>
       <button class="btn" id="btn-reset">Reset View</button>
+      <button class="btn" id="btn-randomize">🎲 Random track</button>
     </div>
 
     <div class="panel" id="event-feed">
@@ -65,6 +66,15 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
   });
 
   btnReset.addEventListener('click', () => sim.orbit.reset());
+
+  const btnRandomize = document.getElementById('btn-randomize') as HTMLButtonElement;
+  btnRandomize.addEventListener('click', () => {
+    // Random seed gets baked into the URL so reloads/share-links are
+    // reproducible. The manifest reads it for the moon-tile-track.
+    const url = new URL(window.location.href);
+    url.searchParams.set('seed', String(Math.floor(Math.random() * 1_000_000)));
+    window.location.assign(url.toString());
+  });
 
   speed.addEventListener('input', () => {
     sim.speedMultiplier = parseFloat(speed.value);

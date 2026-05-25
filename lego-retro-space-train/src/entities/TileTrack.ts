@@ -11,7 +11,9 @@ import {
   generateRectangleLoop,
   generateRandomRectangleLoop,
   generateTemplateLoop,
+  generateExtrudedLoop,
   placeWalkLoop,
+  placeRampBridgeLoop,
 } from '../world/trackLayout';
 
 // See DESIGN.md → "Track tile language" for the visual conventions used
@@ -42,7 +44,11 @@ export interface TileTrackOptions {
   template?: string;
   /** Raw walk-steps for a custom loop shape. */
   walkSteps?: ReadonlyArray<WalkStep>;
-  /** Seed for the random generator (used when none of the above is set). */
+  /** Use the extrude-based random shape generator. */
+  extruded?: { iterations?: number };
+  /** Use the ramp-bridge loop template (rectangle with a raised middle). */
+  rampBridge?: { w: number; h: number };
+  /** Seed for the random generator (used by template/extruded/random modes). */
   seed?: number;
 }
 
@@ -71,6 +77,11 @@ export class TileTrack implements Entity {
       const tpl = LOOP_TEMPLATES.find((t) => t.name === opts.template);
       if (!tpl) throw new Error(`Unknown loop template "${opts.template}"`);
       ({ start, startEntry } = placeWalkLoop(this.layout, tpl.steps));
+    } else if (opts.extruded) {
+      const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
+      ({ start, startEntry } = generateExtrudedLoop(this.layout, rng, opts.extruded.iterations ?? 3));
+    } else if (opts.rampBridge) {
+      ({ start, startEntry } = placeRampBridgeLoop(this.layout, opts.rampBridge.w, opts.rampBridge.h));
     } else if (opts.randomBounds) {
       const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
       ({ start, startEntry } = generateRandomRectangleLoop(this.layout, opts.randomBounds, rng));

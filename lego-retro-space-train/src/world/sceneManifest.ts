@@ -106,6 +106,10 @@ export interface SceneEntitySpec {
   randomBounds?: { gx0: number; gz0: number; gx1: number; gz1: number };
   /** For tileTrack: named template (e.g. 'L-large', 'U-corridor'). */
   template?: string;
+  /** For tileTrack: use the extrude-based random shape generator. */
+  extruded?: { iterations?: number };
+  /** For tileTrack: use the ramp-bridge rectangle template. */
+  rampBridge?: { w: number; h: number };
   /** For tileTrack: deterministic seed for random generation. */
   seed?: number;
   /** For tileTrackCrossing: which trains share the cell, with cell + priority. */
@@ -172,13 +176,23 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
     position: [0, 0.02, 0],
     rectangle: { gx0: -2, gz0: -2, gx1: 2, gz1: 2 },
   },
-  // A second loop on the moon — uses the L-large template to validate
-  // non-rectangular procgen layouts.
+  // A second loop on the moon — random extruded shape. Seed comes from
+  // the URL (?seed=N), so the "🎲 Random track" button reloads with a
+  // fresh seed.
   {
     id: 'moon-tile-track',
     kind: 'tileTrack',
     position: [10, 0.02, -16],
-    template: 'L-large',
+    extruded: { iterations: 4 },
+    seed: urlSeedOrRandom(),
+  },
+  // Ramp-bridge demo — a rectangle that ramps up + crosses + ramps down.
+  // Verifies the new ramp tile pipeline (Y-continuity, elevated straight).
+  {
+    id: 'ramp-bridge-track',
+    kind: 'tileTrack',
+    position: [-16, 0.02, -14],
+    rampBridge: { w: 6, h: 3 },
   },
   {
     id: 'main-tile-train',
@@ -377,6 +391,8 @@ export function buildSceneEntity(
         rectangle: spec.rectangle,
         randomBounds: spec.randomBounds,
         template: spec.template,
+        extruded: spec.extruded,
+        rampBridge: spec.rampBridge,
         seed: spec.seed,
       });
     case 'astronautPedestrian':
@@ -502,4 +518,17 @@ export function signedSpeed(spec: SceneEntitySpec, fallback: number): number {
 
 export function hasTelemetry(entity: Entity): entity is Entity & { speed: number; laps: number } {
   return 'speed' in entity && 'laps' in entity;
+}
+
+/** Pull `?seed=N` from the URL for the random-layout button, falling back to
+ *  a fresh random seed each page-load. */
+function urlSeedOrRandom(): number {
+  if (typeof window === 'undefined') return 0;
+  const url = new URL(window.location.href);
+  const seedParam = url.searchParams.get('seed');
+  if (seedParam !== null) {
+    const n = parseInt(seedParam, 10);
+    if (!Number.isNaN(n)) return n;
+  }
+  return Math.floor(Math.random() * 1_000_000);
 }

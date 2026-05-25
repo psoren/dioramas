@@ -3,15 +3,19 @@ import {
   TrackLayout,
   generateRectangleLoop,
   placeWalkLoop,
+  placeRampBridgeLoop,
+  extrudeRandomSegment,
+  generateExtrudedLoop,
   LOOP_TEMPLATES,
+  WalkStep,
 } from './trackLayout';
+import { dirVector } from './trackTile';
 import {
   TILE_SIZE,
   TEE_NES,
   STRAIGHT_NS,
   CURVE_NE,
   RAMP_NS,
-  RAMP_HEIGHT,
 } from './trackTile';
 
 describe('buildLoop output curve', () => {
@@ -110,6 +114,64 @@ describe('buildLoop routing through 3+-port tiles', () => {
     layout.place(1, 1, CURVE_NE, 1); // ports W, N
     layout.place(0, 1, CURVE_NE, 0); // ports N, E
     expect(() => layout.buildLoop(layout.get(0, 0)!, 'S')).not.toThrow();
+  });
+});
+
+describe('extruded random shape generator', () => {
+  function netDisplacement(steps: ReadonlyArray<WalkStep>): [number, number] {
+    let dx = 0, dz = 0;
+    for (const [dir, count] of steps) {
+      const [vx, vz] = dirVector(dir);
+      dx += vx * count;
+      dz += vz * count;
+    }
+    return [dx, dz];
+  }
+
+  it('extrusion preserves closure across many random iterations', () => {
+    // Closure is THE correctness invariant for the extrude algorithm.
+    // If any extrusion changes net displacement, the resulting layout is
+    // a broken open path that throws at placeWalkLoop. Run 200 random
+    // extrusions to catch any drift.
+    const base: WalkStep[] = [['E', 6], ['S', 4], ['W', 6], ['N', 4]];
+    let steps: ReadonlyArray<WalkStep> = base;
+    let rngState = 1;
+    const rng = () => {
+      rngState = (rngState * 16807) % 2147483647;
+      return rngState / 2147483647;
+    };
+    for (let i = 0; i < 200; i++) {
+      const next = extrudeRandomSegment(steps, rng);
+      if (next) steps = next;
+    }
+    expect(netDisplacement(steps)).toEqual([0, 0]);
+  });
+
+  it('generateExtrudedLoop produces a layout buildLoop can walk', () => {
+    // End-to-end: random shape generates, places, and the loop walker
+    // closes. Catches off-by-one bugs in the extrude algorithm that
+    // would technically preserve net displacement but produce a cell
+    // path with overlapping or missing tiles.
+    const layout = new TrackLayout();
+    let rngState = 42;
+    const rng = () => {
+      rngState = (rngState * 16807) % 2147483647;
+      return rngState / 2147483647;
+    };
+    const { start, startEntry } = generateExtrudedLoop(layout, rng, 5);
+    expect(() => layout.buildLoop(start, startEntry)).not.toThrow();
+  });
+});
+
+describe('ramp bridge loop', () => {
+  it('places a closed loop that buildLoop walks (Y check verifies seams)', () => {
+    // The ramp template is the first user of placePolygonLoop overrides.
+    // buildLoop's Y-continuity check will throw if any ramp seam is
+    // misaligned — passing means the override rotations + positions
+    // line the elevations up correctly.
+    const layout = new TrackLayout();
+    const { start, startEntry } = placeRampBridgeLoop(layout, 6, 3);
+    expect(() => layout.buildLoop(start, startEntry)).not.toThrow();
   });
 });
 

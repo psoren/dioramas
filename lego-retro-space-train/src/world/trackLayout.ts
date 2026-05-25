@@ -5,6 +5,8 @@ import {
   Rotation,
   STRAIGHT_NS,
   CURVE_NE,
+  RAMP_NS,
+  ELEVATED_STRAIGHT_NS,
   TILE_SIZE,
   TrackTileDef,
   effectivePorts,
@@ -299,9 +301,16 @@ function pickStraightOrCurve(entry: Direction, exit: Direction): { def: TrackTil
  * Cells must be pairwise cardinally adjacent and the last cell must be
  * adjacent to the first (the path closes).
  */
+/** Per-cell override map keyed by `"gx,gz"`. Caller is responsible for
+ *  ensuring the override's ports match the (entry, exit) at that cell —
+ *  used e.g. by the ramp loop template to substitute RAMP_NS for a
+ *  straight on specific edge cells. */
+export type PolygonOverrides = ReadonlyMap<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>;
+
 export function placePolygonLoop(
   layout: TrackLayout,
   cells: ReadonlyArray<readonly [number, number]>,
+  overrides?: PolygonOverrides,
 ): { start: PlacedTile; startEntry: Direction } {
   if (cells.length < 4) {
     throw new Error('polygon loop needs at least 4 cells');
@@ -315,8 +324,13 @@ export function placePolygonLoop(
     const departure = dirFromTo(gx, gz, ngx, ngz);
     const entry = opposite(arrival);
     const exit = departure;
-    const { def, rotation } = pickStraightOrCurve(entry, exit);
-    layout.place(gx, gz, def, rotation);
+    const override = overrides?.get(`${gx},${gz}`);
+    if (override) {
+      layout.place(gx, gz, override.def, override.rotation, override.routing);
+    } else {
+      const { def, rotation } = pickStraightOrCurve(entry, exit);
+      layout.place(gx, gz, def, rotation);
+    }
   }
   const [pgx, pgz] = cells[n - 1]!;
   const [gx0, gz0] = cells[0]!;
@@ -336,6 +350,7 @@ export function placeWalkLoop(
   layout: TrackLayout,
   steps: ReadonlyArray<WalkStep>,
   origin: readonly [number, number] = [0, 0],
+  overrides?: PolygonOverrides,
 ): { start: PlacedTile; startEntry: Direction } {
   let dxSum = 0;
   let dzSum = 0;
@@ -361,7 +376,7 @@ export function placeWalkLoop(
   }
   // Last cell is back at origin; drop the duplicate.
   cells.pop();
-  return placePolygonLoop(layout, cells);
+  return placePolygonLoop(layout, cells, overrides);
 }
 
 // --- Template library --------------------------------------------------
@@ -390,6 +405,122 @@ export function generateTemplateLoop(
   const tpl = LOOP_TEMPLATES[Math.floor(rng() * LOOP_TEMPLATES.length)]!;
   const { start, startEntry } = placeWalkLoop(layout, tpl.steps, origin);
   return { start, startEntry, template: tpl.name };
+}
+
+// ---------------------------------------------------------------------------
+// Extrude-based random walker: takes a base loop's walk steps and repeatedly
+// "extrudes" a rectangular bump out of a random straight segment. Always
+// preserves closure (every extrusion adds equal N/S and E/W displacement
+// inside the bump that cancels). Produces organic blob shapes.
+// ---------------------------------------------------------------------------
+
+function perpCCW(d: Direction): Direction {
+  // 90° CCW (left when facing in `d`).
+  return ({ N: 'W', W: 'S', S: 'E', E: 'N' } as const)[d];
+}
+
+/**
+ * Pick one straight segment in `steps` long enough to extrude, split it
+ * around a random offset, and insert a 4-step rectangular bump. Returns a
+ * new step list on success, or null if no segment was long enough.
+ *
+ * Always extrudes to the "left" of the walk direction. For CW base shapes
+ * (rectangles wrapped clockwise) this points outward, growing the
+ * perimeter. For CCW it eats inward — which is fine, also closes.
+ */
+export function extrudeRandomSegment(
+  steps: ReadonlyArray<WalkStep>,
+  rng: () => number = Math.random,
+  minSegmentLen = 3,
+  maxBumpDepth = 3,
+): WalkStep[] | null {
+  // Need count ≥ 3 so k1 + width + k2 = count with each ≥ 1.
+  const eligible: number[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    if (steps[i]![1] >= minSegmentLen) eligible.push(i);
+  }
+  if (eligible.length === 0) return null;
+  const idx = eligible[Math.floor(rng() * eligible.length)]!;
+  const [dir, count] = steps[idx]!;
+  // Closure-preserving split: the bump's horizontal span (`width`) eats
+  // into the original count so net displacement in `dir` stays at `count`.
+  // count = k1 + width + k2  with each side ≥ 1.
+  const k1 = 1 + Math.floor(rng() * (count - 2));
+  const remaining = count - k1 - 1;
+  const k2 = 1 + Math.floor(rng() * remaining);
+  const width = count - k1 - k2;
+  const depth = 1 + Math.floor(rng() * maxBumpDepth);
+  const out = perpCCW(dir);
+  const back = opposite(out);
+  return [
+    ...steps.slice(0, idx),
+    [dir, k1],
+    [out, depth],
+    [dir, width],
+    [back, depth],
+    [dir, k2],
+    ...steps.slice(idx + 1),
+  ];
+}
+
+/**
+ * Build a randomly-shaped loop by starting from a random small rectangle
+ * and applying N extrusions. Each extrusion preserves closure, so the
+ * result is always a valid closed perimeter — without the closure-bias
+ * problems of pure random walks.
+ */
+export function generateExtrudedLoop(
+  layout: TrackLayout,
+  rng: () => number = Math.random,
+  iterations = 3,
+): { start: PlacedTile; startEntry: Direction; steps: ReadonlyArray<WalkStep> } {
+  // Random base rectangle 3-5 wide, 2-4 tall.
+  const w = 3 + Math.floor(rng() * 3);
+  const h = 2 + Math.floor(rng() * 3);
+  let steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
+  for (let i = 0; i < iterations; i++) {
+    const next = extrudeRandomSegment(steps, rng);
+    if (next) steps = next;
+  }
+  const { start, startEntry } = placeWalkLoop(layout, steps);
+  return { start, startEntry, steps };
+}
+
+// ---------------------------------------------------------------------------
+// Ramp loop template: a rectangle whose top edge climbs over a bridge span
+// and descends back to ground. Uses placePolygonLoop's override map.
+// ---------------------------------------------------------------------------
+
+/**
+ * Place a closed rectangle whose middle of the top edge climbs a ramp,
+ * runs across an elevated span, and ramps back down. Width must be ≥ 5
+ * (room for: corner + straight + ramp + elevated + ramp + straight + corner).
+ */
+export function placeRampBridgeLoop(
+  layout: TrackLayout,
+  w: number,
+  h: number,
+  origin: readonly [number, number] = [0, 0],
+): { start: PlacedTile; startEntry: Direction } {
+  if (w < 5) throw new Error('ramp bridge loop needs width >= 5');
+  if (h < 2) throw new Error('ramp bridge loop needs height >= 2');
+  const steps: WalkStep[] = [['E', w - 1], ['S', h - 1], ['W', w - 1], ['N', h - 1]];
+  // Top edge cells (after start cell at origin) are at gz = origin[1].
+  // They run E from origin gx=0..w-1. The middle 3 cells host the ramps
+  // + elevated straight: at gx = ramp-up, gx+1 = elevated, gx+2 = ramp-down.
+  const oz = origin[1];
+  const ox = origin[0];
+  const rampStartX = ox + Math.floor((w - 3) / 2);
+  // Walker travels E across the top, so entry/exit for these cells are
+  // W → E. Ramp rotations: RAMP_NS rot 1 climbs west→east (W low, E high);
+  // ELEVATED_STRAIGHT_NS rot 1 is flat at RAMP_HEIGHT W↔E; RAMP_NS rot 3
+  // descends west→east (W high, E low).
+  const overrides: Map<string, { def: TrackTileDef; rotation: Rotation }> = new Map([
+    [`${rampStartX},${oz}`,     { def: RAMP_NS,             rotation: 1 }],
+    [`${rampStartX + 1},${oz}`, { def: ELEVATED_STRAIGHT_NS, rotation: 1 }],
+    [`${rampStartX + 2},${oz}`, { def: RAMP_NS,             rotation: 3 }],
+  ]);
+  return placeWalkLoop(layout, steps, origin, overrides);
 }
 
 /**
