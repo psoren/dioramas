@@ -4,6 +4,8 @@ import { MAT } from '../world/materials';
 import { TILE_SIZE } from '../world/trackTile';
 import {
   TrackLayout,
+  LoopResult,
+  TileSpan,
   generateRectangleLoop,
   generateRandomRectangleLoop,
 } from '../world/trackLayout';
@@ -39,20 +41,29 @@ export class TileTrack implements Entity {
   readonly object3d: THREE.Group;
   readonly path: THREE.CatmullRomCurve3;
   readonly layout = new TrackLayout();
+  /** Full loop result — exposed so other systems (stations, intersections)
+   *  can use the t→tile lookup. */
+  readonly loop: LoopResult;
 
   constructor(opts: TileTrackOptions = {}) {
     if (opts.rectangle) {
       const r = opts.rectangle;
       const { start, startEntry } = generateRectangleLoop(this.layout, r.gx0, r.gz0, r.gx1, r.gz1);
-      this.path = this.layout.buildLoop(start, startEntry);
+      this.loop = this.layout.buildLoop(start, startEntry);
     } else {
       const bounds = opts.randomBounds ?? { gx0: -3, gz0: -2, gx1: 3, gz1: 2 };
       const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
       const { start, startEntry } = generateRandomRectangleLoop(this.layout, bounds, rng);
-      this.path = this.layout.buildLoop(start, startEntry);
+      this.loop = this.layout.buildLoop(start, startEntry);
     }
+    this.path = this.loop.curve;
     this.object3d = this.build();
     if (opts.position) this.object3d.position.fromArray(opts.position);
+  }
+
+  /** Convenience: which tile cell sits at this path-t? */
+  tileAtT(t: number): TileSpan | null {
+    return this.loop.tileAtT(t);
   }
 
   private build(): THREE.Group {

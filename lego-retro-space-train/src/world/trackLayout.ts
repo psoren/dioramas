@@ -5,12 +5,40 @@ import {
   Rotation,
   STRAIGHT_NS,
   CURVE_NE,
+  TILE_SIZE,
   TrackTileDef,
   effectivePorts,
   sampleWorldPath,
   dirVector,
   opposite,
 } from './trackTile';
+
+/**
+ * A tile's contiguous span along the loop curve, in t-coordinates.
+ * `tStart` ≤ t < `tEnd` (with the final span wrapping past 1.0 back to 0).
+ */
+export interface TileSpan {
+  gridX: number;
+  gridZ: number;
+  /** "gx,gz" key. */
+  key: string;
+  tStart: number;
+  tEnd: number;
+}
+
+/**
+ * Output of `buildLoop`: the renderable curve, the per-tile t-spans, and
+ * a `tileAtT(t)` lookup function for downstream consumers (stations,
+ * intersections, HUD) that need to know which tile cell is "under" a
+ * given path-position right now.
+ */
+export interface LoopResult {
+  curve: THREE.CatmullRomCurve3;
+  tileSpans: readonly TileSpan[];
+  /** O(1) lookup. Returns null only if the curve passes through a region
+   *  no tile covers — shouldn't happen for valid layouts. */
+  tileAtT(t: number): TileSpan | null;
+}
 
 /**
  * Grid of placed track tiles. Provides:
@@ -40,14 +68,15 @@ export class TrackLayout {
 
   /**
    * Walk a closed loop starting at `start`, entering it from `startEntry`.
-   * Concatenates each tile's centreline into a single curve. Only supports
-   * 2-port tiles along the path (intersections need explicit routing).
+   * Concatenates each tile's centreline into a single curve and returns a
+   * `LoopResult` with a t→tile lookup attached. Only supports 2-port tiles
+   * along the path (intersections need explicit routing).
    */
   buildLoop(
     start: PlacedTile,
     startEntry: Direction,
     samplesPerTile = 12,
-  ): THREE.CatmullRomCurve3 {
+  ): LoopResult {
     const points: THREE.Vector3[] = [];
     let current = start;
     let entry = startEntry;
@@ -78,14 +107,70 @@ export class TrackLayout {
       }
       const newEntry = opposite(exit);
       if (next === start && newEntry === startEntry) {
-        // Closed the loop — return without re-emitting the start point.
-        return new THREE.CatmullRomCurve3(points, true, 'catmullrom');
+        // Centripetal parameterisation minimises overshoot — important so
+        // the curve doesn't bulge across tile boundaries and break the
+        // t→tile bbox lookup.
+        const curve = new THREE.CatmullRomCurve3(points, true, 'centripetal');
+        return buildLookup(curve, this.tiles());
       }
       entry = newEntry;
       current = next;
     }
     throw new Error('buildLoop did not close in 256 steps');
   }
+}
+
+/**
+ * Build the t→tile lookup by sampling the curve at uniform t intervals
+ * and finding the tile whose cell bbox contains each sampled point.
+ * Each tile gets a single contiguous (tStart, tEnd) range — valid for
+ * loops where the curve passes through each cell at most once (the only
+ * kind we generate today).
+ */
+function buildLookup(
+  curve: THREE.CatmullRomCurve3,
+  tiles: readonly PlacedTile[],
+): LoopResult {
+  const RESOLUTION = 360;
+  // For each sample, pick the tile whose centre is closest to the curve
+  // point. A pure bbox check would suffer ambiguous matches where a curve
+  // smoothly cuts a cell corner — the train would briefly "teleport" to
+  // a neighbour. Nearest-centre is unambiguous and is what we want
+  // semantically: "which cell does this point belong to most".
+  const buckets: (TileSpan | null)[] = new Array(RESOLUTION);
+  const spansByKey = new Map<string, TileSpan>();
+
+  for (let i = 0; i < RESOLUTION; i++) {
+    const t = i / RESOLUTION;
+    const p = curve.getPointAt(t);
+    let bestD2 = Infinity;
+    let best: PlacedTile | null = null;
+    for (const tile of tiles) {
+      const dx = p.x - tile.gridX * TILE_SIZE;
+      const dz = p.z - tile.gridZ * TILE_SIZE;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) { bestD2 = d2; best = tile; }
+    }
+    if (!best) { buckets[i] = null; continue; }
+    const tileKey = `${best.gridX},${best.gridZ}`;
+    let span = spansByKey.get(tileKey);
+    if (!span) {
+      span = { gridX: best.gridX, gridZ: best.gridZ, key: tileKey, tStart: t, tEnd: t };
+      spansByKey.set(tileKey, span);
+    }
+    span.tEnd = (i + 1) / RESOLUTION;
+    buckets[i] = span;
+  }
+
+  return {
+    curve,
+    tileSpans: Array.from(spansByKey.values()),
+    tileAtT(t: number) {
+      const u = ((t % 1) + 1) % 1;
+      const idx = Math.min(RESOLUTION - 1, Math.floor(u * RESOLUTION));
+      return buckets[idx] ?? null;
+    },
+  };
 }
 
 function key(gx: number, gz: number): string {
