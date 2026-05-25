@@ -102,6 +102,10 @@ export interface SceneEntitySpec {
   destinationIds?: string[];
   /** For tileTrack: explicit rectangle layout in grid coords. */
   rectangle?: { gx0: number; gz0: number; gx1: number; gz1: number };
+  /** For tileTrack: bounds for the random generator (ignored if rectangle set). */
+  randomBounds?: { gx0: number; gz0: number; gx1: number; gz1: number };
+  /** For tileTrack: deterministic seed for random generation. */
+  seed?: number;
   /** For tileTrackCrossing: which trains share the cell, with cell + priority. */
   crossingTrains?: Array<{
     trainId: string;
@@ -366,11 +370,13 @@ export function buildSceneEntity(
         position: spec.position ?? [13, 0.05, 0],
         heading: spec.heading,
       });
-    case 'tileTrack':
-      return new TileTrack({
-        position: spec.position ?? [0, 0.02, 0],
-        rectangle: spec.rectangle ?? { gx0: -2, gz0: -2, gx1: 2, gz1: 2 },
-      });
+    case 'tileTrack': {
+      const opts: { position: THREE.Vector3Tuple } & ({ rectangle: NonNullable<SceneEntitySpec['rectangle']> } | { randomBounds: NonNullable<SceneEntitySpec['randomBounds']>; seed?: number }) =
+        spec.randomBounds && !spec.rectangle
+          ? { position: spec.position ?? [0, 0.02, 0], randomBounds: spec.randomBounds, seed: spec.seed }
+          : { position: spec.position ?? [0, 0.02, 0], rectangle: spec.rectangle ?? { gx0: -2, gz0: -2, gx1: 2, gz1: 2 } };
+      return new TileTrack(opts);
+    }
     case 'astronautPedestrian':
       // Pedestrians wander an annulus around the baseplate on the moon
       // surface. Default bounds keep them off the plate and out of the fog.
