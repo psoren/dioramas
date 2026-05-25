@@ -8,8 +8,15 @@ import {
   generateRandomRectangleLoop,
 } from '../world/trackLayout';
 
-const TRACK_WIDTH = 0.9;
-const TRACK_DECK_Y = 0.04;
+// See DESIGN.md → "Track tile language" for the visual conventions used
+// here. Deck + two side rails + central conductor strip + faint cell pads.
+const DECK_HALF_WIDTH = 0.45;
+const DECK_Y = 0.04;
+const RAIL_HALF_WIDTH = 0.04;
+const RAIL_LATERAL = 0.4;     // distance from centreline to each rail
+const RAIL_Y = 0.085;
+const CONDUCTOR_HALF_WIDTH = 0.05;
+const CONDUCTOR_Y = 0.075;
 const SAMPLES = 280;
 
 export interface TileTrackOptions {
@@ -24,13 +31,9 @@ export interface TileTrackOptions {
 
 /**
  * Renders a procedurally-composed track loop. Tiles snap to a grid; the
- * generator picks placements; this entity builds a single deck strip along
- * the resulting loop path. The path is exposed as `.path` so future
- * vehicles can be attached to it.
- *
- * This is the first user of `trackTile`/`trackLayout`. Adding new tile
- * kinds (ramps, intersections, switches) extends the system without
- * touching this file.
+ * generator picks placements; this entity builds a single layered ribbon
+ * along the resulting loop path (deck + side rails + central conductor
+ * strip). The path is exposed as `.path` so vehicles can attach to it.
  */
 export class TileTrack implements Entity {
   readonly object3d: THREE.Group;
@@ -55,57 +58,93 @@ export class TileTrack implements Entity {
   private build(): THREE.Group {
     const g = new THREE.Group();
 
-    // Deck strip along the path
-    const positions: number[] = [];
-    const indices: number[] = [];
-    const half = TRACK_WIDTH / 2;
-    const ringCount = SAMPLES + 1;
-
-    for (let i = 0; i < ringCount; i++) {
-      const t = i / SAMPLES;
-      const p = this.path.getPointAt(t);
-      const tan = this.path.getTangentAt(t);
-      // Perpendicular in XZ plane.
-      const nx = -tan.z;
-      const nz = tan.x;
-      const len = Math.sqrt(nx * nx + nz * nz) || 1;
-      const ux = (nx / len) * half;
-      const uz = (nz / len) * half;
-      positions.push(p.x + ux, TRACK_DECK_Y, p.z + uz);
-      positions.push(p.x - ux, TRACK_DECK_Y, p.z - uz);
-    }
-    for (let i = 0; i < SAMPLES; i++) {
-      const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-      indices.push(a, b, c);
-      indices.push(b, d, c);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    const deckMat = MAT.gray.clone();
-    deckMat.side = THREE.DoubleSide;
-    const deck = new THREE.Mesh(geo, deckMat);
-    deck.receiveShadow = true;
-    g.add(deck);
-
-    // Subtle grid pads under each tile so the procgen layout reads visually.
-    const padGeo = new THREE.BoxGeometry(TILE_SIZE * 0.95, 0.015, TILE_SIZE * 0.95);
+    // --- Cell pads first so the strip renders on top of them ---
+    const padGeo = new THREE.BoxGeometry(TILE_SIZE * 0.96, 0.012, TILE_SIZE * 0.96);
     const padMat = MAT.grayDark.clone();
     padMat.transparent = true;
-    padMat.opacity = 0.55;
+    padMat.opacity = 0.35;
     for (const tile of this.layout.tiles()) {
       const pad = new THREE.Mesh(padGeo, padMat);
-      pad.position.set(tile.gridX * TILE_SIZE, 0.015, tile.gridZ * TILE_SIZE);
+      pad.position.set(tile.gridX * TILE_SIZE, 0.012, tile.gridZ * TILE_SIZE);
       pad.receiveShadow = true;
       g.add(pad);
     }
 
+    // --- Deck strip ---
+    const deckMat = MAT.gray.clone();
+    deckMat.side = THREE.DoubleSide;
+    const deck = new THREE.Mesh(
+      buildStripGeometry(this.path, SAMPLES, DECK_HALF_WIDTH, 0, DECK_Y),
+      deckMat,
+    );
+    deck.receiveShadow = true;
+    g.add(deck);
+
+    // --- Two side rails ---
+    const railMat = MAT.grayDark.clone();
+    for (const lateral of [-RAIL_LATERAL, RAIL_LATERAL]) {
+      const rail = new THREE.Mesh(
+        buildStripGeometry(this.path, SAMPLES, RAIL_HALF_WIDTH, lateral, RAIL_Y),
+        railMat,
+      );
+      rail.castShadow = true;
+      g.add(rail);
+    }
+
+    // --- Centre conductor strip (the LEGO monorail third rail) ---
+    const conductor = new THREE.Mesh(
+      buildStripGeometry(this.path, SAMPLES, CONDUCTOR_HALF_WIDTH, 0, CONDUCTOR_Y),
+      MAT.yellow,
+    );
+    g.add(conductor);
+
     return g;
   }
+}
+
+/**
+ * Build a flat strip mesh that follows a path at a constant lateral offset
+ * from its centreline, with a fixed width and Y. Returns the geometry; the
+ * caller picks the material.
+ */
+function buildStripGeometry(
+  path: THREE.CatmullRomCurve3,
+  samples: number,
+  halfWidth: number,
+  lateral: number,
+  y: number,
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    const p = path.getPointAt(t);
+    const tan = path.getTangentAt(t);
+    const nx = -tan.z;
+    const nz = tan.x;
+    const len = Math.sqrt(nx * nx + nz * nz) || 1;
+    const lx = nx / len;
+    const lz = nz / len;
+    const cx = p.x + lx * lateral;
+    const cz = p.z + lz * lateral;
+    const ux = lx * halfWidth;
+    const uz = lz * halfWidth;
+    positions.push(cx + ux, y, cz + uz);
+    positions.push(cx - ux, y, cz - uz);
+  }
+  for (let i = 0; i < samples; i++) {
+    const a = i * 2;
+    const b = a + 1;
+    const c = a + 2;
+    const d = a + 3;
+    indices.push(a, b, c);
+    indices.push(b, d, c);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 function mulberry32(seed: number): () => number {
