@@ -46,6 +46,9 @@ export class MonorailTrain extends TrackVehicle {
   }
 
   update(dt: number): void {
+    // Drive the inherited speed-easing — without this the cruise speed
+    // never gets applied and the train sits still.
+    this.advanceSpeed(dt);
     const prev = this.t;
     this.t = wrap01(this.t + this.speed * dt);
     if (dt > 0 && this.speed >= 0 && this.t < prev) this.laps++;

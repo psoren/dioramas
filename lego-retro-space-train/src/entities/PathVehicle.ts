@@ -70,14 +70,20 @@ export abstract class PathVehicle implements Entity {
   /** Build the mesh hierarchy. Origin at vehicle's pivot, forward = +X. */
   protected abstract build(opts: PathVehicleOptions): THREE.Group;
 
-  update(dt: number): void {
-    // Ease toward target speed (signed lerp, so reverse / hold transitions
-    // are smooth instead of snapping).
+  /**
+   * Ease `currentSpeed` toward `targetSpeed`. Subclasses that override
+   * `update` MUST call this each frame, otherwise the eased speed never
+   * leaves zero and the vehicle never moves.
+   */
+  protected advanceSpeed(dt: number): void {
     const target = this.targetSpeed;
     const delta = target - this.currentSpeed;
     const step = Math.sign(delta) * Math.min(Math.abs(delta), this.accel * dt);
     this.currentSpeed += step;
+  }
 
+  update(dt: number): void {
+    this.advanceSpeed(dt);
     const prev = this.t;
     this.t = wrap01(this.t + this.currentSpeed * dt);
     if (dt > 0 && this.currentSpeed >= 0 && this.t < prev) this.laps++;

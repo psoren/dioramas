@@ -132,15 +132,13 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
   // Stationary astronauts at the elevator and a station spot.
   { id: 'station-astronaut', kind: 'microAstronaut', position: [-6.0, 0.0, 6.0], heading: Math.PI },
   { id: 'elevator-astronaut', kind: 'microAstronaut', position: [-7.0, 0.0, -3.5], heading: Math.PI / 2 },
-  // Retro space sets across the open ground.
+  // Retro space sets — ground pieces only. The flying spaceships
+  // (mtron, space-police, galaxy-explorer flyover, blacktron cruiser)
+  // were removed at the user's request.
   { id: 'micro-rocket-launchpad', kind: 'microRocketLaunchpad', position: [8.0, LAUNCHPAD_GROUND_Y, -8.0], heading: 0 },
-  { id: 'mtron-magnetizer', kind: 'mtronMagnetizer', position: [-8.0, 3.5, -8.0], heading: Math.PI / 2 },
   { id: 'ice-planet-defender', kind: 'icePlanetDefender', position: [-8.0, LAUNCHPAD_GROUND_Y, 8.0], heading: -Math.PI / 2 },
-  { id: 'space-police-cruiser', kind: 'spacePoliceCruiser', position: [10.5, 3.0, 0.0], heading: Math.PI },
-  { id: 'galaxy-explorer-flyover', kind: 'galaxyExplorerShip', position: [8.0, 4.0, 8.0], heading: -Math.PI / 4 },
   { id: 'galaxy-rover', kind: 'galaxyExplorerRover', position: [-2.5, GROUND_OBJECT_Y, 8.5], heading: 0 },
   { id: 'robot-helper', kind: 'robotHelper', position: [2.5, GROUND_OBJECT_Y, 8.5], heading: Math.PI / 2 },
-  { id: 'blacktron-cruiser', kind: 'blacktronCruiser', position: [0.0, 4.5, -10.5], heading: -Math.PI / 2 },
   { id: 'blacktron-outpost', kind: 'blacktronOutpost', position: [-2.5, GROUND_OBJECT_Y, -8.5], heading: Math.PI / 2 },
   // Road trucks (use roadPath, independent of tile system).
   {
@@ -156,8 +154,8 @@ export const defaultSceneManifest: SceneEntitySpec[] = [
   { id: 'truck-b', kind: 'spaceTruck', speed: 0.022, t: 0.5 },
   { id: 'depot-north', kind: 'containerDepot', position: [0, 0.05, 13], heading: 0 },
   { id: 'depot-south', kind: 'containerDepot', position: [0, 0.05, -13], heading: Math.PI },
-  // Lunar residential block + solar farm + wandering pedestrians.
-  { id: 'apartment-1', kind: 'apartmentBuilding', position: [-16, 0.02, 10], heading: Math.PI * 0.75 },
+  // Solar farm + wandering pedestrians. Apartment removed; pedestrians
+  // wander without a home target.
   { id: 'solar-farm-1', kind: 'solarFarm', position: [16, 0.02, -10], heading: 0 },
   { id: 'pedestrian-1', kind: 'astronautPedestrian', t: 0.0 },
   { id: 'pedestrian-2', kind: 'astronautPedestrian', t: 0.12 },
