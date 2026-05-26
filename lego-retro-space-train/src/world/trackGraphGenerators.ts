@@ -185,14 +185,16 @@ const PERP_CCW: Record<Direction, Direction> = {
 };
 
 /** CURVE_NE rotation that redirects an L-spur from perpendicular-outward
- *  (entering toward the main TEE) into parallel-to-main (the spur arm).
- *  Indexed by the MAIN run direction. Pairs:
- *    E run: curve ports {S, W}  (enters from S = TEE side, exits W = parallel-against-E)
- *    S run: curve ports {W, N}
- *    W run: curve ports {N, E}
- *    N run: curve ports {E, S}
+ *  (entering toward the main TEE) into parallel-WITH-main (forward peel-off
+ *  arm — same direction as the CW walk). Indexed by the MAIN run direction.
+ *  CURVE_NE rotations: 0→{N,E}, 1→{W,N}, 2→{S,W}, 3→{E,S}.
+ *  Pairs (curve cell ports = {entry-from-TEE-side, exit-to-arm}):
+ *    E run: curve ports {S, E}   — entry S, exit E (arm runs east) — Rot 3
+ *    S run: curve ports {W, S}   — entry W, exit S (arm runs south) — Rot 2
+ *    W run: curve ports {N, W}   — entry N, exit W (arm runs west) — Rot 1
+ *    N run: curve ports {E, N}   — entry E, exit N (arm runs north) — Rot 0
  */
-const CURVE_ROT_FOR_RUN: Record<Direction, Rotation> = { E: 2, S: 1, W: 0, N: 3 };
+const CURVE_ROT_FOR_RUN: Record<Direction, Rotation> = { E: 3, S: 2, W: 1, N: 0 };
 
 /** Straight tile rotation that exposes ports along a given axis. */
 function straightRotForAxis(dir: Direction): Rotation {
@@ -301,7 +303,7 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     const curveCell: [number, number] = [teeCell[0] + pdx, teeCell[1] + pdz];
     if (Math.abs(curveCell[0]) > 5 || Math.abs(curveCell[1]) > 5) return false;
     if (walkSet.has(`${curveCell[0]},${curveCell[1]}`)) return false;
-    const parDir = opposite(run.dir);
+    const parDir = run.dir; // forward peel-off: arm runs WITH main direction
     const [adx, adz] = dirVector(parDir);
     for (let k = 1; k <= ARM_LEN; k++) {
       const cx = curveCell[0] + adx * k;
@@ -339,7 +341,7 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   const teeCell = spurRun.cells[Math.floor(spurRun.cells.length / 2)]!;
   const runDir = spurRun.dir;
   const perpDir = PERP_CCW[runDir];      // outward from main
-  const parDir = opposite(runDir);       // parallel to main (the direction the L-arm points)
+  const parDir = runDir;                 // forward peel-off: arm runs WITH the main direction
   const [pdx, pdz] = dirVector(perpDir);
   const [adx, adz] = dirVector(parDir);
   // TEE on the main loop (override the straight at teeCell).

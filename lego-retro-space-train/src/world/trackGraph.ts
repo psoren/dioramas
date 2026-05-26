@@ -8,6 +8,7 @@ import {
   opposite,
   sampleWorldPath,
 } from './trackTile';
+import type { PlacedTile } from './trackTile';
 import { TrackLayout } from './trackLayout';
 
 // ---------------------------------------------------------------------------
@@ -265,10 +266,21 @@ function buildEdgeCurve(
   const SAMPLES_PER_TILE = 20;
   const points: THREE.Vector3[] = [];
 
-  // From-junction half-tile (centre → boundary).
   const fromTile = layout.get(from.gridX, from.gridZ);
   if (!fromTile) throw new Error(`from-junction (${from.gridX},${from.gridZ}) missing tile`);
-  appendJunctionHalf(points, fromTile, from, exitPort, to, /*startAtCenter=*/ true);
+  const toTile = layout.get(to.gridX, to.gridZ);
+  if (!toTile) throw new Error(`to-junction (${to.gridX},${to.gridZ}) missing tile`);
+
+  // For each junction half-tile, compute the "first step direction" — the
+  // direction the rail continues after passing the cell boundary. Used as
+  // the tangent at cell centre for the lone-port (TEE branch) bezier so the
+  // rail visibly peels off the main toward where the spur extends, rather
+  // than dropping straight out perpendicular like a T.
+  const fromFirstStep = firstStepDirection(layout, exitPort, midCells, /*reversed=*/ false);
+  const toFirstStep = firstStepDirection(layout, entryPort, midCells, /*reversed=*/ true);
+
+  // From-junction half-tile (centre → boundary).
+  appendJunctionHalf(points, fromTile, from, exitPort, fromFirstStep);
 
   // Mid cells.
   let entry = opposite(exitPort);
@@ -279,26 +291,15 @@ function buildEdgeCurve(
     const ports = effectivePorts(tile);
     const exit = ports[0] === entry ? ports[1]! : ports[0]!;
     const seg = sampleWorldPath(tile, entry, exit, SAMPLES_PER_TILE);
-    // Skip the first sample of each midcell — it duplicates the previous
-    // segment's last sample (either the from-half's boundary or the
-    // previous midcell's last sample).
     for (let k = 1; k < seg.length; k++) points.push(seg[k]!);
     entry = opposite(exit);
   }
 
-  // To-junction half-tile (boundary → centre). Built centre-to-boundary then
-  // reversed, so the bezier tangent calculation uses the same orientation.
-  const toTile = layout.get(to.gridX, to.gridZ);
-  if (!toTile) throw new Error(`to-junction (${to.gridX},${to.gridZ}) missing tile`);
+  // To-junction half-tile, built centre→boundary then reversed.
   const headLen = points.length;
-  appendJunctionHalf(points, toTile, to, entryPort, from, /*startAtCenter=*/ true);
-  // Reverse only the just-appended chunk so it runs boundary→centre. Drop
-  // its first point (boundary) since it duplicates the last mid-cell sample
-  // (or the from-half boundary if there are no mid cells).
+  appendJunctionHalf(points, toTile, to, entryPort, toFirstStep);
   const tail = points.splice(headLen);
   tail.reverse();
-  // tail now starts at boundary, ends at centre. Drop boundary if it
-  // duplicates the previous point.
   const prev = points[points.length - 1];
   if (prev && prev.distanceTo(tail[0]!) < 1e-6) tail.shift();
   points.push(...tail);
@@ -306,23 +307,50 @@ function buildEdgeCurve(
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
 }
 
-/** Append samples from cell centre out to a port boundary. ALWAYS a
- *  straight half-tile (linear from centre to the boundary). The previous
- *  bezier for branch ports made the train's curve tangent at cell centre
- *  point toward the spur destination, which conflicted with the through-
- *  edges' tangents (pointing along the main axis). At the junction the
- *  train's mesh rotation would flip ~180° between edges. Straight halves
- *  give consistent port-direction tangents at the centre, so transitions
- *  are clean 90° turns from one straight to another. */
+/** Direction the rail continues after crossing the from-junction's boundary
+ *  in the `port` direction. If the first mid-cell turns (e.g. a CURVE),
+ *  this returns the curve's exit direction. With no mid-cells, returns the
+ *  port direction itself (straight continuation into the next junction).
+ *  `reversed=true` walks from the to-junction backward (last mid-cell first). */
+function firstStepDirection(
+  layout: TrackLayout,
+  port: Direction,
+  midCells: ReadonlyArray<readonly [number, number]>,
+  reversed: boolean,
+): Direction {
+  if (midCells.length === 0) return port;
+  const cell = reversed ? midCells[midCells.length - 1]! : midCells[0]!;
+  const tile = layout.get(cell[0], cell[1]);
+  if (!tile) return port;
+  const ports = effectivePorts(tile);
+  const entry = opposite(port);
+  if (!ports.includes(entry)) return port;
+  return ports[0] === entry ? ports[1]! : ports[0]!;
+}
+
+/** Append samples from cell centre out to a port boundary.
+ *
+ *  - "Main" ports (the port's opposite is also in the tile's port set —
+ *    e.g. either of a TEE's through-pair, any CROSS port, a station-on-
+ *    straight port) render as a STRAIGHT linear half-tile. The through
+ *    rail at a TEE is a single straight line across the cell.
+ *
+ *  - "Lone" ports (no opposite in the tile's port set — the TEE branch
+ *    port) render as a SMOOTH CUBIC BEZIER. Tangent at the cell centre
+ *    points along the main axis in the direction of the first step beyond
+ *    the boundary (e.g. if the spur arm runs east after a north-exit
+ *    branch port, the centre tangent is east). Tangent at the boundary is
+ *    the port's perpendicular direction. The result visually peels the
+ *    branch off the main at an angle — like a wooden Y-switch — instead
+ *    of dropping perpendicular like a T.
+ */
 function appendJunctionHalf(
   points: THREE.Vector3[],
-  tile: { gridX: number; gridZ: number; def: { kind: string }; rotation: number } & { def: any },
+  tile: PlacedTile,
   node: GraphNode,
   port: Direction,
-  _otherNode: GraphNode,
-  _startAtCenter: boolean,
+  firstStepDir: Direction,
 ): void {
-  void _otherNode; void _startAtCenter; void tile;
   const cellY = node.pos.y;
   const cellCenter = new THREE.Vector3(node.gridX * TILE_SIZE, cellY, node.gridZ * TILE_SIZE);
   const [dx, dz] = dirVector(port);
@@ -331,13 +359,40 @@ function appendJunctionHalf(
     cellY,
     cellCenter.z + (dz * TILE_SIZE) / 2,
   );
-  const N = 6;
+  const ports = effectivePorts(tile);
+  const isLone = !ports.includes(opposite(port));
+  if (!isLone) {
+    // Straight half-tile: linear from centre to boundary.
+    const N = 6;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      points.push(new THREE.Vector3(
+        cellCenter.x + (boundary.x - cellCenter.x) * t,
+        cellY,
+        cellCenter.z + (boundary.z - cellCenter.z) * t,
+      ));
+    }
+    return;
+  }
+  // Lone (TEE branch) half-tile: smooth cubic bezier.
+  const [fdx, fdz] = dirVector(firstStepDir);
+  const handle = TILE_SIZE * 0.35;
+  const c0 = new THREE.Vector3(
+    cellCenter.x + fdx * handle,
+    cellY,
+    cellCenter.z + fdz * handle,
+  );
+  const c1 = new THREE.Vector3(
+    boundary.x - dx * handle,
+    cellY,
+    boundary.z - dz * handle,
+  );
+  const N = 16;
   for (let i = 0; i <= N; i++) {
     const t = i / N;
-    points.push(new THREE.Vector3(
-      cellCenter.x + (boundary.x - cellCenter.x) * t,
-      cellY,
-      cellCenter.z + (boundary.z - cellCenter.z) * t,
-    ));
+    const u = 1 - t;
+    const x = u*u*u*cellCenter.x + 3*u*u*t*c0.x + 3*u*t*t*c1.x + t*t*t*boundary.x;
+    const z = u*u*u*cellCenter.z + 3*u*u*t*c0.z + 3*u*t*t*c1.z + t*t*t*boundary.z;
+    points.push(new THREE.Vector3(x, cellY, z));
   }
 }
