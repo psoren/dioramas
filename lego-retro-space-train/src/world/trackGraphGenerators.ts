@@ -273,16 +273,36 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     left:   { dir: 'N', cells: cells.slice(2 * w + h + 1, 2 * w + 2 * h) },
   };
 
-  // ---------- 3. Pick spur + bridge sides ----------
-  const allSides: SideKey[] = ['top', 'right', 'bottom', 'left'];
-  for (let i = allSides.length - 1; i > 0; i--) {
+  // ---------- 3. Pick spur side (must have plate room outward) ----------
+  // For each candidate side, compute the maximum spur length (cells the
+  // branch can extend perpendicular to the side before hitting ±5).
+  // Pick the FIRST shuffled side with at least 1 cell of room.
+  const sideKeys: SideKey[] = ['top', 'right', 'bottom', 'left'];
+  for (let i = sideKeys.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [allSides[i], allSides[j]] = [allSides[j]!, allSides[i]!];
+    [sideKeys[i], sideKeys[j]] = [sideKeys[j]!, sideKeys[i]!];
   }
-  const spurSide = allSides[0]!;
+  const maxSpurLen = (side: SideKey): number => {
+    const run = sides[side];
+    if (run.cells.length === 0) return 0;
+    const teeCell = run.cells[Math.floor(run.cells.length / 2)]!;
+    const bd = PERP_CCW[run.dir];
+    const [bdx, bdz] = dirVector(bd);
+    let len = 0;
+    for (let k = 1; k <= 4; k++) {
+      const cx = teeCell[0] + bdx * k;
+      const cz = teeCell[1] + bdz * k;
+      if (Math.abs(cx) > 5 || Math.abs(cz) > 5) break;
+      if (walkSet.has(`${cx},${cz}`)) break;
+      len = k;
+    }
+    return len;
+  };
+  const spurSide = sideKeys.find((s) => maxSpurLen(s) >= 1);
+  if (!spurSide) return null;
   const oppositeOf: Record<SideKey, SideKey> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
   const bridgeSide = oppositeOf[spurSide];
-  const perpendicularSides = allSides.filter((s) => s !== spurSide && s !== bridgeSide);
+  const perpendicularSides = sideKeys.filter((s) => s !== spurSide && s !== bridgeSide);
 
   // ---------- 4. Place decorations ----------
   const claimed = new Set<string>();
@@ -296,20 +316,15 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   // 4a. Y-spur on the chosen side: TEE at the side's midpoint, branch
   // extending outward, dead-end station at the end.
   const spurRun = sides[spurSide];
-  if (spurRun.cells.length < 1) return null;
   const teeCell = spurRun.cells[Math.floor(spurRun.cells.length / 2)]!;
   const runDir = spurRun.dir;
   const branchDir = PERP_CCW[runDir];
   const [bdx, bdz] = dirVector(branchDir);
-  const spurLen = 2 + Math.floor(rng() * 2); // 2-3 cells
+  // Use 2 cells when the plate allows; otherwise the max that fits.
+  const spurLen = Math.min(2, maxSpurLen(spurSide));
   const spurCells: Array<readonly [number, number]> = [];
   for (let k = 1; k <= spurLen; k++) {
     spurCells.push([teeCell[0] + bdx * k, teeCell[1] + bdz * k]);
-  }
-  // All spur cells must fit on the plate and not collide with the walk.
-  for (const [x, z] of spurCells) {
-    if (walkSet.has(`${x},${z}`)) return null;
-    if (Math.abs(x) > 5 || Math.abs(z) > 5) return null;
   }
   const teeRot = TEE_RUN_ROT[runDir];
   const teeRouting = new Map<Direction, Direction>([[opposite(runDir), runDir]]);
