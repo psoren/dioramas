@@ -29,9 +29,10 @@ export interface GraphTrainOptions {
 const DEFAULT_SPEED = 1.6;       // world units / second
 const DEFAULT_DWELL = 1.2;       // seconds
 const ACCEL = 1.8;               // units/s²
-/** Radians/sec the mesh can rotate. With dwell=1.2s and π rad to flip,
- *  ~3.0 rad/s lets a full 180° turn complete inside the dwell window. */
-const ROTATION_RATE = 3.0;
+/** Radians/sec the mesh can rotate. 12 rad/s makes a 90° junction turn
+ *  take ~0.13s (smooth but instant-feeling) and a 180° station reversal
+ *  take ~0.26s (well inside the dwell window). */
+const ROTATION_RATE = 12;
 
 export class GraphTrain implements Entity {
   readonly object3d: THREE.Group;
@@ -228,11 +229,11 @@ export class GraphTrain implements Entity {
     const tz = this.direction === 1 ? tan.z : -tan.z;
     this.object3d.position.set(pos.x, pos.y + this.y, pos.z);
     const targetRot = Math.atan2(tx, tz) - Math.PI / 2;
-    // Snap rotation while moving — the train should always face along the
-    // track, otherwise it looks like it's drifting sideways through
-    // junctions. Ease ONLY during dwell (stopped at a station) so the
-    // 180° reversal at terminus is visible but not jarring mid-motion.
-    if (dt <= 0 || this.dwellRemaining <= 0) {
+    // Always ease rotation toward the target. At 12 rad/s, a 90° junction
+    // turn completes in ~0.13s — fast enough to read as crisp, but smooth
+    // enough that a 90° snap doesn't look like a jump. dt=0 (initial pose)
+    // still snaps so the train doesn't spin into place when first spawned.
+    if (dt <= 0) {
       this.meshRotation = targetRot;
     } else {
       let delta = targetRot - this.meshRotation;

@@ -306,64 +306,38 @@ function buildEdgeCurve(
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
 }
 
-/** Append samples from cell centre out to a port boundary. Straight for
- *  main ports, cubic bezier for lone ports. */
+/** Append samples from cell centre out to a port boundary. ALWAYS a
+ *  straight half-tile (linear from centre to the boundary). The previous
+ *  bezier for branch ports made the train's curve tangent at cell centre
+ *  point toward the spur destination, which conflicted with the through-
+ *  edges' tangents (pointing along the main axis). At the junction the
+ *  train's mesh rotation would flip ~180° between edges. Straight halves
+ *  give consistent port-direction tangents at the centre, so transitions
+ *  are clean 90° turns from one straight to another. */
 function appendJunctionHalf(
   points: THREE.Vector3[],
   tile: { gridX: number; gridZ: number; def: { kind: string }; rotation: number } & { def: any },
   node: GraphNode,
   port: Direction,
-  otherNode: GraphNode,
-  startAtCenter: boolean,
+  _otherNode: GraphNode,
+  _startAtCenter: boolean,
 ): void {
-  void startAtCenter;
+  void _otherNode; void _startAtCenter; void tile;
   const cellY = node.pos.y;
-  const cellCenter = new THREE.Vector3(tile.gridX * TILE_SIZE, cellY, tile.gridZ * TILE_SIZE);
+  const cellCenter = new THREE.Vector3(node.gridX * TILE_SIZE, cellY, node.gridZ * TILE_SIZE);
   const [dx, dz] = dirVector(port);
   const boundary = new THREE.Vector3(
     cellCenter.x + (dx * TILE_SIZE) / 2,
     cellY,
     cellCenter.z + (dz * TILE_SIZE) / 2,
   );
-  const ports = effectivePorts(tile as never);
-  const isLone = !ports.includes(opposite(port));
-  const N = isLone ? 20 : 6;
-  if (!isLone) {
-    // Straight: linear interpolation, centre → boundary.
-    for (let i = 0; i <= N; i++) {
-      const t = i / N;
-      points.push(new THREE.Vector3(
-        cellCenter.x + (boundary.x - cellCenter.x) * t,
-        cellY,
-        cellCenter.z + (boundary.z - cellCenter.z) * t,
-      ));
-    }
-    return;
-  }
-  // Bezier: tangent at centre points toward the other junction (so two
-  // joined edges through the same junction form one continuous main rail),
-  // tangent at boundary points out along the port direction.
-  const toward = new THREE.Vector3().subVectors(otherNode.pos, node.pos);
-  toward.y = 0;
-  const tlen = toward.length() || 1;
-  toward.divideScalar(tlen);
-  const t1 = TILE_SIZE * 0.32;
-  const c1 = new THREE.Vector3(
-    cellCenter.x + toward.x * t1,
-    cellY,
-    cellCenter.z + toward.z * t1,
-  );
-  const t2 = TILE_SIZE * 0.32;
-  const c2 = new THREE.Vector3(
-    boundary.x - dx * t2,
-    cellY,
-    boundary.z - dz * t2,
-  );
+  const N = 6;
   for (let i = 0; i <= N; i++) {
     const t = i / N;
-    const u = 1 - t;
-    const x = u*u*u*cellCenter.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*boundary.x;
-    const z = u*u*u*cellCenter.z + 3*u*u*t*c1.z + 3*u*t*t*c2.z + t*t*t*boundary.z;
-    points.push(new THREE.Vector3(x, cellY, z));
+    points.push(new THREE.Vector3(
+      cellCenter.x + (boundary.x - cellCenter.x) * t,
+      cellY,
+      cellCenter.z + (boundary.z - cellCenter.z) * t,
+    ));
   }
 }
