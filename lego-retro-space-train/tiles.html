@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Track Tile Dashboard</title>
+    <link rel="stylesheet" href="/src/ui/styles.css" />
+    <style>
+      body { margin: 0; font-family: monospace; color: #ddd; background: #0a0c14; }
+      h1 { padding: 1rem; margin: 0; }
+      canvas { display: block; }
+      #grid-container { padding: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Track tile palette — every kind × every rotation</h1>
+    <div id="grid-container">
+      <canvas id="scene"></canvas>
+    </div>
+    <script type="module" src="/src/tilesMain.ts"></script>
+  </body>
+</html>
