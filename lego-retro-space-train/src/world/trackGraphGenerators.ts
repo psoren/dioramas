@@ -17,8 +17,6 @@ import {
   TrackLayout,
   WalkStep,
   centeredOrigin,
-  extrudeRandomSegment,
-  findStraightRuns,
   placePolygonLoop,
 } from './trackLayout';
 import { GraphNode, NodeKind, TrackGraph, buildGraphFromLayout } from './trackGraph';
@@ -236,21 +234,26 @@ export function generateRandomGraphTrack(
 }
 
 function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | null {
-  // ---------- 1. Random base shape ----------
-  // Centred rectangle with optional outward bumps. (Figure-8 base was
-  // tried but its small lobes read as tight knots even at 4-5 cells per
-  // side; removed.) Intersection variety comes from sidings instead.
-  const w = 7 + Math.floor(rng() * 3); // 7-9
-  const h = 5 + Math.floor(rng() * 3); // 5-7
-  let steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
-  const extrusions = Math.floor(rng() * 3); // 0-2
-  for (let i = 0; i < extrusions; i++) {
-    const next = extrudeRandomSegment(steps, rng, /*minLen*/ 4, /*maxBumpDepth*/ 1);
-    if (next) steps = next;
-  }
+  // ---------- Design ----------
+  // Clean rectangle main loop. One side gets a passing siding (TEE +
+  // parallel branch + TEE — the "intersection"). The OPPOSITE side gets
+  // an elevated bridge (RAMP/ELEVATED/RAMP). Three stations sit on
+  // long straight runs: one on each of the two perpendicular sides
+  // (they're untouched by features) plus one mid-branch.
+  // Variety per roll comes from rectangle dimensions + which side gets
+  // the siding (4 rotational layouts × 4 size combos = 16 variants).
+  // No extrusions or spurs — they were producing irregular blob shapes
+  // and awkward stub branches that didn't look like real layouts.
+  // ---------- 1. Rectangle ----------
+  // 7-8 wide × 6-7 tall fits inside ±5 cells from origin even with a
+  // branch column 1 cell off each side (Math.round centring of odd
+  // widths leans by 0.5 cell — odd values 9+ exceed the bound).
+  const w = 7 + Math.floor(rng() * 2); // 7-8
+  const h = 6 + Math.floor(rng() * 2); // 6-7
+  const steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
   const origin = centeredOrigin(steps);
 
-  // Expand walk → cell list.
+  // Expand walk → cell list (clockwise from top-left corner).
   const cells: Array<readonly [number, number]> = [[origin[0], origin[1]]];
   {
     let cx = origin[0], cz = origin[1];
@@ -265,145 +268,80 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     cells.pop();
   }
   const walkSet = new Set(cells.map(([x, z]) => `${x},${z}`));
-  // Identify cells that the walk visits more than once — these become
-  // CROSS_NESW tiles after placePolygonLoop. Pre-claim them so decorations
-  // (sidings/spurs/stations) don't collide with the auto-placed CROSSes.
-  const visitCount = new Map<string, number>();
-  for (const [x, z] of cells) {
-    const k = `${x},${z}`;
-    visitCount.set(k, (visitCount.get(k) || 0) + 1);
-  }
-  const crossCellKeys = new Set<string>();
-  for (const [k, v] of visitCount) if (v >= 2) crossCellKeys.add(k);
-  // Identify pass-through cells (entry dir == exit dir). Stations must
-  // sit on these — a curve cell has the track cutting the corner rather
-  // than passing through the cell centre, so a platform offset from
-  // centre lands ~2 tiles away from the actual rails.
-  const straightCellKeys = new Set<string>();
-  for (let i = 0; i < cells.length; i++) {
-    const [cx, cz] = cells[i]!;
-    const [pcx, pcz] = cells[(i - 1 + cells.length) % cells.length]!;
-    const [ncx, ncz] = cells[(i + 1) % cells.length]!;
-    if (cx - pcx === ncx - cx && cz - pcz === ncz - cz) {
-      straightCellKeys.add(`${cx},${cz}`);
-    }
-  }
 
-  // Bbox check: reject if the walk overruns the plate (±5 cells from
-  // origin = 11×11 cells on the 28-unit baseplate). Caller retries.
+  // Bbox check: rectangle must fit on the plate (±5 cells from origin).
   for (const [x, z] of cells) {
     if (Math.abs(x) > 5 || Math.abs(z) > 5) return null;
   }
 
-  // ---------- 2. Find runs ----------
-  const baseRuns = findStraightRuns(cells, 3);
-  // Shuffle so decoration placement is random.
-  for (let i = baseRuns.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [baseRuns[i], baseRuns[j]] = [baseRuns[j]!, baseRuns[i]!];
-  }
+  // ---------- 2. Identify the 4 sides' interior cells ----------
+  // Each side's cells are pass-through (straight) — the corners are NOT
+  // included (they're curves). Sidings/bridges go ON these straight runs.
+  // Cell layout from the walk (starting at top-left corner index 0):
+  //   indices [0]          : NW corner
+  //   indices [1 .. w-1]   : top edge, w-1 straight cells (going E)
+  //   indices [w]          : NE corner
+  //   indices [w+1 .. w+h-1]: right edge, h-1 straight cells (going S)
+  //   indices [w+h]        : SE corner
+  //   indices [w+h+1 .. 2w+h-1]: bottom edge, w-1 straight cells (going W)
+  //   indices [2w+h]       : SW corner
+  //   indices [2w+h+1 .. 2w+2h-1]: left edge, h-1 straight cells (going N)
+  type SideKey = 'top' | 'right' | 'bottom' | 'left';
+  const sides: Record<SideKey, { dir: Direction; cells: ReadonlyArray<readonly [number, number]> }> = {
+    top:    { dir: 'E', cells: cells.slice(1, w) },
+    right:  { dir: 'S', cells: cells.slice(w + 1, w + h) },
+    bottom: { dir: 'W', cells: cells.slice(w + h + 1, 2 * w + h) },
+    left:   { dir: 'N', cells: cells.slice(2 * w + h + 1, 2 * w + 2 * h) },
+  };
 
-  // ---------- 3. Allocate decorations ----------
-  // Pre-claim CROSS cells so stations / spurs / sidings don't land on them
-  // (which would shadow the CROSS as a 'station' node and lose the
-  // intersection in routing).
-  const claimed = new Set<string>(crossCellKeys);
+  // ---------- 3. Pick siding + bridge sides ----------
+  const allSides: SideKey[] = ['top', 'right', 'bottom', 'left'];
+  // Shuffle.
+  for (let i = allSides.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [allSides[i], allSides[j]] = [allSides[j]!, allSides[i]!];
+  }
+  const sidingSide = allSides[0]!;
+  const oppositeOf: Record<SideKey, SideKey> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
+  const bridgeSide = oppositeOf[sidingSide];
+  const perpendicularSides = allSides.filter((s) => s !== sidingSide && s !== bridgeSide);
+
+  // ---------- 4. Place decorations ----------
+  const claimed = new Set<string>();
   const overrides = new Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>();
   type ExtraTile = { gx: number; gz: number; def: TrackTileDef; rotation: Rotation };
   const extraTiles: ExtraTile[] = [];
   const nodeCells: Array<{ gx: number; gz: number; kind: NodeKind; label: string }> = [];
   let stationIdx = 0;
-  const stationLabel = () => String.fromCharCode(65 + stationIdx++); // A, B, C, ...
+  const stationLabel = () => String.fromCharCode(65 + stationIdx++);
   let junctionIdx = 0;
   const junctionLabel = () => `Jct-${++junctionIdx}`;
 
-  // Find a contiguous unclaimed sub-run of length ≥ minLen.
-  const pickFreeSubRun = (minLen: number): { dir: Direction; cells: Array<readonly [number, number]> } | null => {
-    for (const r of baseRuns) {
-      let start = -1;
-      let runLen = 0;
-      for (let i = 0; i < r.cells.length; i++) {
-        const [cx, cz] = r.cells[i]!;
-        if (claimed.has(`${cx},${cz}`)) {
-          if (runLen >= minLen) {
-            return { dir: r.dir, cells: r.cells.slice(start, start + runLen) };
-          }
-          start = -1;
-          runLen = 0;
-        } else {
-          if (start === -1) start = i;
-          runLen++;
-        }
-      }
-      if (runLen >= minLen) {
-        return { dir: r.dir, cells: r.cells.slice(start, start + runLen) };
-      }
-    }
+  // 4a. Siding on the chosen side.
+  const sidingRun = sides[sidingSide];
+  if (sidingRun.cells.length < 4) return null; // need 4+ cells
+  if (!tryPlaceSiding(
+    { dir: sidingRun.dir, cells: [...sidingRun.cells] },
+    rng, walkSet, claimed, overrides, extraTiles, nodeCells,
+    stationLabel, junctionLabel,
+  )) {
     return null;
-  };
-
-  // 3a. Reserve a main-loop bridge first so it always lands. ONE bridge
-  // only — two close together produces "stacked pillars" visual noise.
-  // Claim ±1 cell margin around the bridge to keep sidings away from
-  // the ramps (siding TEEs on a ramp cell mean Y mismatch at the seam).
-  {
-    const run = pickFreeSubRun(3);
-    if (run) placeBridge(run, claimed, overrides);
   }
 
-  // 3b. Passing sidings (1-2). Min run 4 cells = TEE + TEE + 2 margin.
-  const nSidings = 1 + Math.floor(rng() * 2);
-  let placedSidings = 0;
-  for (let i = 0; i < nSidings; i++) {
-    const run = pickFreeSubRun(4);
-    if (!run) break;
-    if (tryPlaceSiding(run, rng, walkSet, claimed, overrides, extraTiles, nodeCells, stationLabel, junctionLabel)) {
-      placedSidings++;
-    }
-  }
+  // 4b. Bridge on the opposite side.
+  const bridgeRun = sides[bridgeSide];
+  if (bridgeRun.cells.length < 3) return null;
+  placeBridge({ dir: bridgeRun.dir, cells: [...bridgeRun.cells] }, claimed, overrides);
 
-  // 3c. Dead-end spurs (0-2). Each ends in a station.
-  const nSpurs = Math.floor(rng() * 3);
-  for (let i = 0; i < nSpurs; i++) {
-    const run = pickFreeSubRun(3);
-    if (!run) break;
-    tryPlaceSpur(run, rng, walkSet, claimed, overrides, extraTiles, nodeCells, stationLabel, junctionLabel);
-  }
-
-  // 3d. Ensure ≥ 2 stations (and aim for 3+ when the graph has room — more
-  // stations exercise more edges as the train cycles through them).
-  // Pick the FREE walk cell furthest from any existing station so two
-  // stations don't end up in adjacent cells.
-  const TARGET_STATIONS = 3;
-  const MIN_STATION_DIST = 4; // manhattan
-  while (nodeCells.filter((n) => n.kind === 'station').length < TARGET_STATIONS) {
-    let bestCell: readonly [number, number] | null = null;
-    let bestDist = -1;
-    for (const [cx, cz] of cells) {
-      const key = `${cx},${cz}`;
-      if (claimed.has(key)) continue;
-      // Stations only on pass-through (straight) cells — curve cells
-      // have the track cutting through the corner, not the centre.
-      if (!straightCellKeys.has(key)) continue;
-      let minDist = Infinity;
-      for (const n of nodeCells) {
-        if (n.kind !== 'station') continue;
-        const d = Math.abs(cx - n.gx) + Math.abs(cz - n.gz);
-        if (d < minDist) minDist = d;
-      }
-      if (minDist > bestDist) {
-        bestDist = minDist;
-        bestCell = [cx, cz];
-      }
-    }
-    if (!bestCell) break;
-    // For station #1 (no existing stations) any free cell is fine. For
-    // subsequent stations require the min-distance buffer; bail if no
-    // cell is far enough.
-    const hasExisting = nodeCells.some((n) => n.kind === 'station');
-    if (hasExisting && bestDist < MIN_STATION_DIST) break;
-    claimed.add(`${bestCell[0]},${bestCell[1]}`);
-    nodeCells.push({ gx: bestCell[0], gz: bestCell[1], kind: 'station', label: stationLabel() });
+  // 4c. Stations on the two perpendicular sides — one each, at the
+  // midpoint of each side's straight run.
+  for (const side of perpendicularSides) {
+    const run = sides[side];
+    if (run.cells.length === 0) continue;
+    const mid = run.cells[Math.floor(run.cells.length / 2)]!;
+    if (claimed.has(`${mid[0]},${mid[1]}`)) continue;
+    claimed.add(`${mid[0]},${mid[1]}`);
+    nodeCells.push({ gx: mid[0], gz: mid[1], kind: 'station', label: stationLabel() });
   }
 
   // ---------- 4. Place layout ----------
@@ -438,10 +376,9 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   }
   const stations = graph.nodes.filter((n) => n.kind === 'station');
   const junctions = graph.nodes.filter((n) => n.kind === 'junction');
-  // Contract: ≥2 stations, ≥1 intersection (TEE or CROSS), ≥1 elevated.
-  const crossCount = graph.layout.tiles().filter((t) => t.def.kind === 'cross-nesw').length;
+  // Contract: ≥3 stations, ≥1 intersection, ≥1 elevated section.
   const elevCount = graph.layout.tiles().filter((t) => t.def.kind === 'elevated-straight-ns' || t.def.kind === 'ramp-ns').length;
-  if (stations.length < 2 || (placedSidings === 0 && crossCount === 0) || elevCount === 0) {
+  if (stations.length < 3 || junctions.length < 1 || elevCount === 0) {
     return null;
   }
   return { graph, stations, junctions };
@@ -520,45 +457,6 @@ function tryPlaceSiding(
     const mid = interior[Math.floor(interior.length / 2)]!;
     nodeCells.push({ gx: mid[0], gz: mid[1], kind: 'station', label: stationLabel() });
   }
-  return true;
-}
-
-function tryPlaceSpur(
-  run: { dir: Direction; cells: Array<readonly [number, number]> },
-  rng: () => number,
-  walkSet: ReadonlySet<string>,
-  claimed: Set<string>,
-  overrides: Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>,
-  extraTiles: Array<{ gx: number; gz: number; def: TrackTileDef; rotation: Rotation }>,
-  nodeCells: Array<{ gx: number; gz: number; kind: NodeKind; label: string }>,
-  stationLabel: () => string,
-  junctionLabel: () => string,
-): boolean {
-  const dir = run.dir;
-  const branchDir = PERP_CCW[dir];
-  const [bdx, bdz] = dirVector(branchDir);
-  const teeCell = run.cells[Math.floor(run.cells.length / 2)]!;
-  const spurLen = 2 + Math.floor(rng() * 2); // 2-3 cells
-  const spurCells: Array<readonly [number, number]> = [];
-  for (let k = 1; k <= spurLen; k++) {
-    spurCells.push([teeCell[0] + bdx * k, teeCell[1] + bdz * k]);
-  }
-  for (const [x, z] of spurCells) {
-    if (walkSet.has(`${x},${z}`) || claimed.has(`${x},${z}`)) return false;
-    if (Math.abs(x) > 5 || Math.abs(z) > 5) return false;
-  }
-  const teeRot = TEE_RUN_ROT[dir];
-  const teeRouting = new Map<Direction, Direction>([[opposite(dir), dir]]);
-  overrides.set(`${teeCell[0]},${teeCell[1]}`, { def: TEE_NES, rotation: teeRot, routing: teeRouting });
-  claimed.add(`${teeCell[0]},${teeCell[1]}`);
-  const spurRot = straightRotForAxis(branchDir);
-  for (const [cx, cz] of spurCells) {
-    extraTiles.push({ gx: cx, gz: cz, def: STRAIGHT_NS, rotation: spurRot });
-    claimed.add(`${cx},${cz}`);
-  }
-  nodeCells.push({ gx: teeCell[0], gz: teeCell[1], kind: 'junction', label: junctionLabel() });
-  const end = spurCells[spurCells.length - 1]!;
-  nodeCells.push({ gx: end[0], gz: end[1], kind: 'station', label: stationLabel() });
   return true;
 }
 
