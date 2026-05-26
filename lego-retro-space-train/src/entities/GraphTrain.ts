@@ -228,9 +228,11 @@ export class GraphTrain implements Entity {
     const tz = this.direction === 1 ? tan.z : -tan.z;
     this.object3d.position.set(pos.x, pos.y + this.y, pos.z);
     const targetRot = Math.atan2(tx, tz) - Math.PI / 2;
-    // Ease meshRotation toward targetRot along the shortest angular path.
-    // dt=0 (initial pose) or zero motion → snap to target.
-    if (dt <= 0) {
+    // Snap rotation while moving — the train should always face along the
+    // track, otherwise it looks like it's drifting sideways through
+    // junctions. Ease ONLY during dwell (stopped at a station) so the
+    // 180° reversal at terminus is visible but not jarring mid-motion.
+    if (dt <= 0 || this.dwellRemaining <= 0) {
       this.meshRotation = targetRot;
     } else {
       let delta = targetRot - this.meshRotation;

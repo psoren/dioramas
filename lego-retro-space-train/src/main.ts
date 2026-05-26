@@ -103,10 +103,20 @@ const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTe
 // The figure-8 / extruded / twisted modes from earlier rolls still live
 // in TileTrack but are no longer wired into the random button.
 const randomEntities: Entity[] = [];
+// Optional pin: ?seed=N in the URL forces every "random" roll to use the
+// same seed, so a layout can be reproduced for debugging. The HUD click
+// of "Random Track" still re-rolls a NEW random seed (unless ?seed is
+// present at page load — then it sticks).
+const URL_SEED = (() => {
+  const p = new URLSearchParams(window.location.search);
+  const v = p.get('seed');
+  return v ? Number(v) : null;
+})();
 function randomizeTrack(): void {
   for (const e of randomEntities) sim.remove(e);
   randomEntities.length = 0;
-  const seed = Math.floor(Math.random() * 1_000_000);
+  const seed = URL_SEED ?? Math.floor(Math.random() * 1_000_000);
+  console.log(`track seed: ${seed} (pin with ?seed=${seed})`);
   const mulberry = mulberry32(seed);
   const { graph, stations } = generateRandomGraphTrack(mulberry);
   const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0] }));
