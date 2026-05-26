@@ -283,6 +283,7 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   };
 
   // ---------- 3. Pick spur side ----------
+  const ARM_LEN = 4; // 3 straights + 1 station, so the parallel arm dominates
   // L-spur needs: 1 cell perpendicular (CURVE) + N cells parallel to main
   // (STRAIGHTs + STATION). Total branch footprint: ≥2 cells out, ≥2 cells
   // along the side. Pick the first side that has the room.
@@ -297,16 +298,12 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     const teeCell = run.cells[Math.floor(run.cells.length / 2)]!;
     const perpDir = PERP_CCW[run.dir];
     const [pdx, pdz] = dirVector(perpDir);
-    // Curve cell: 1 step perpendicular from TEE.
     const curveCell: [number, number] = [teeCell[0] + pdx, teeCell[1] + pdz];
     if (Math.abs(curveCell[0]) > 5 || Math.abs(curveCell[1]) > 5) return false;
     if (walkSet.has(`${curveCell[0]},${curveCell[1]}`)) return false;
-    // First parallel cell: 1 step CCW of perpDir (parallel to main, on the
-    // outward side). Use perpCCW of perpDir, which is OPPOSITE of runDir.
     const parDir = opposite(run.dir);
     const [adx, adz] = dirVector(parDir);
-    // Need at least 2 cells parallel (1 straight + 1 station).
-    for (let k = 1; k <= 2; k++) {
+    for (let k = 1; k <= ARM_LEN; k++) {
       const cx = curveCell[0] + adx * k;
       const cz = curveCell[1] + adz * k;
       if (Math.abs(cx) > 5 || Math.abs(cz) > 5) return false;
@@ -357,11 +354,12 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   const curveRot = CURVE_ROT_FOR_RUN[runDir];
   extraTiles.push({ gx: curveCell[0], gz: curveCell[1], def: CURVE_NE, rotation: curveRot });
   claimed.add(`${curveCell[0]},${curveCell[1]}`);
-  // Parallel arm: 1-2 straight cells + station at the end.
-  const armLen = 2; // 1 straight + 1 station cell, fits inside plate per lSpurFits.
+  // Parallel arm: ARM_LEN straight cells, last one is the station. The
+  // long parallel arm is what makes the spur read as "side track running
+  // alongside the main" rather than a perpendicular T stub.
   const armStraightRot = straightRotForAxis(parDir);
   const armCells: Array<[number, number]> = [];
-  for (let k = 1; k <= armLen; k++) {
+  for (let k = 1; k <= ARM_LEN; k++) {
     armCells.push([curveCell[0] + adx * k, curveCell[1] + adz * k]);
   }
   for (const [cx, cz] of armCells) {
