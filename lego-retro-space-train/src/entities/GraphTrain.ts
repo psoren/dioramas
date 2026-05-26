@@ -65,16 +65,25 @@ export class GraphTrain implements Entity {
     // Place the train somewhere sensible:
     //   - If startAt is given, start at that node.
     //   - Otherwise, pick the from-side of the first edge incident at target #0.
-    const target0 = this.targetCycle[0]!;
-    const startNode = opts.startAt ?? this.pickInitialNode(target0);
-    const initialPath = this.graph.shortestPath(startNode, target0);
+    // If the train starts AT its first target, treat it as "just arrived":
+    // advance targetIdx to the NEXT target and dwell. Otherwise the train
+    // would walk to the first node, see "not at target", route back, and
+    // bounce on the spur before crossing the junction.
+    const startNode = opts.startAt ?? this.pickInitialNode(this.targetCycle[0]!);
+    if (startNode === this.targetCycle[0]! && this.targetCycle.length > 1) {
+      this.targetIdx = 1;
+      this.dwellRemaining = this.dwellTime;
+    }
+    const targetNow = this.currentTargetNode();
+    const initialPath = this.graph.shortestPath(startNode, targetNow);
     if (initialPath === null || initialPath.length === 0) {
-      // Train is AT the target already; just sit on any incident edge.
-      const edge = target0.edges[0];
-      if (!edge) throw new Error(`Target ${target0.id} has no edges to sit on`);
+      // Train coincides with current target (single-target cycle, or
+      // startNode === targetNow after wrap). Sit on an incident edge.
+      const edge = targetNow.edges[0];
+      if (!edge) throw new Error(`Target ${targetNow.id} has no edges to sit on`);
       this.currentEdge = edge;
-      this.t = edge.from === target0 ? 0 : 1;
-      this.direction = edge.from === target0 ? 1 : -1;
+      this.t = edge.from === targetNow ? 0 : 1;
+      this.direction = edge.from === targetNow ? 1 : -1;
       this.dwellRemaining = this.dwellTime;
     } else {
       const firstEdge = initialPath[0]!;
