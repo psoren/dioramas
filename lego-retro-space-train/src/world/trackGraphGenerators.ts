@@ -184,27 +184,6 @@ const PERP_CCW: Record<Direction, Direction> = {
   N: 'W', W: 'S', S: 'E', E: 'N',
 };
 
-/** Branch corner rotations (CURVE_NE) for joining the TEE's branch port
- *  to the parallel run cells. Indexed by run direction. */
-function branchCornerRotations(runDir: Direction): { entrySide: Rotation; exitSide: Rotation } {
-  // teeEntry is the FIRST TEE the walker hits along the run (smaller index
-  // in the run cell list). teeExit is the LAST. The branch travels from
-  // entryCorner (perpendicular-outward of teeEntry) along the parallel
-  // row to exitCorner (outward of teeExit), then down into teeExit.
-  //
-  // For run E: cells ordered W→E. teeEntry is WEST TEE, teeExit is EAST.
-  //   entryCorner ports needed: {S, E} (S to TEE below, E to next branch cell).
-  //   exitCorner  ports needed: {W, S}.
-  // Derived per direction; cross-checked against the W path used by the
-  // legacy generatePassingSiding template (which uses rot 1 / rot 0 there).
-  switch (runDir) {
-    case 'E': return { entrySide: 3, exitSide: 2 };
-    case 'W': return { entrySide: 1, exitSide: 0 };
-    case 'N': return { entrySide: 0, exitSide: 3 };
-    case 'S': return { entrySide: 2, exitSide: 1 };
-  }
-}
-
 /** Straight tile rotation that exposes ports along a given axis. */
 function straightRotForAxis(dir: Direction): Rotation {
   return dir === 'N' || dir === 'S' ? 0 : 1;
@@ -235,15 +214,15 @@ export function generateRandomGraphTrack(
 
 function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | null {
   // ---------- Design ----------
-  // Clean rectangle main loop. One side gets a passing siding (TEE +
-  // parallel branch + TEE — the "intersection"). The OPPOSITE side gets
-  // an elevated bridge (RAMP/ELEVATED/RAMP). Three stations sit on
-  // long straight runs: one on each of the two perpendicular sides
-  // (they're untouched by features) plus one mid-branch.
-  // Variety per roll comes from rectangle dimensions + which side gets
-  // the siding (4 rotational layouts × 4 size combos = 16 variants).
-  // No extrusions or spurs — they were producing irregular blob shapes
-  // and awkward stub branches that didn't look like real layouts.
+  // Clean rectangle main loop. One side gets a Y-spur (TEE on the main +
+  // a short branch peeling off, ending in a station with a buffer
+  // stop — looks like a real LEGO Y-switch). The OPPOSITE side gets an
+  // elevated bridge. Three stations: one at the spur end, one each on
+  // the two perpendicular sides of the main loop.
+  // Variety per roll: 4 spur-side choices × 4 dimension combos = 16
+  // distinct layouts. (Passing-siding template was tried but its two
+  // TEEs + parallel branch read as a "tongue" hanging off the loop
+  // rather than a real switch.)
   // ---------- 1. Rectangle ----------
   // 7-8 wide × 6-7 tall fits inside ±5 cells from origin even with a
   // branch column 1 cell off each side (Math.round centring of odd
@@ -294,17 +273,16 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     left:   { dir: 'N', cells: cells.slice(2 * w + h + 1, 2 * w + 2 * h) },
   };
 
-  // ---------- 3. Pick siding + bridge sides ----------
+  // ---------- 3. Pick spur + bridge sides ----------
   const allSides: SideKey[] = ['top', 'right', 'bottom', 'left'];
-  // Shuffle.
   for (let i = allSides.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [allSides[i], allSides[j]] = [allSides[j]!, allSides[i]!];
   }
-  const sidingSide = allSides[0]!;
+  const spurSide = allSides[0]!;
   const oppositeOf: Record<SideKey, SideKey> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
-  const bridgeSide = oppositeOf[sidingSide];
-  const perpendicularSides = allSides.filter((s) => s !== sidingSide && s !== bridgeSide);
+  const bridgeSide = oppositeOf[spurSide];
+  const perpendicularSides = allSides.filter((s) => s !== spurSide && s !== bridgeSide);
 
   // ---------- 4. Place decorations ----------
   const claimed = new Set<string>();
@@ -314,19 +292,37 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   const nodeCells: Array<{ gx: number; gz: number; kind: NodeKind; label: string }> = [];
   let stationIdx = 0;
   const stationLabel = () => String.fromCharCode(65 + stationIdx++);
-  let junctionIdx = 0;
-  const junctionLabel = () => `Jct-${++junctionIdx}`;
 
-  // 4a. Siding on the chosen side.
-  const sidingRun = sides[sidingSide];
-  if (sidingRun.cells.length < 4) return null; // need 4+ cells
-  if (!tryPlaceSiding(
-    { dir: sidingRun.dir, cells: [...sidingRun.cells] },
-    rng, walkSet, claimed, overrides, extraTiles, nodeCells,
-    stationLabel, junctionLabel,
-  )) {
-    return null;
+  // 4a. Y-spur on the chosen side: TEE at the side's midpoint, branch
+  // extending outward, dead-end station at the end.
+  const spurRun = sides[spurSide];
+  if (spurRun.cells.length < 1) return null;
+  const teeCell = spurRun.cells[Math.floor(spurRun.cells.length / 2)]!;
+  const runDir = spurRun.dir;
+  const branchDir = PERP_CCW[runDir];
+  const [bdx, bdz] = dirVector(branchDir);
+  const spurLen = 2 + Math.floor(rng() * 2); // 2-3 cells
+  const spurCells: Array<readonly [number, number]> = [];
+  for (let k = 1; k <= spurLen; k++) {
+    spurCells.push([teeCell[0] + bdx * k, teeCell[1] + bdz * k]);
   }
+  // All spur cells must fit on the plate and not collide with the walk.
+  for (const [x, z] of spurCells) {
+    if (walkSet.has(`${x},${z}`)) return null;
+    if (Math.abs(x) > 5 || Math.abs(z) > 5) return null;
+  }
+  const teeRot = TEE_RUN_ROT[runDir];
+  const teeRouting = new Map<Direction, Direction>([[opposite(runDir), runDir]]);
+  overrides.set(`${teeCell[0]},${teeCell[1]}`, { def: TEE_NES, rotation: teeRot, routing: teeRouting });
+  claimed.add(`${teeCell[0]},${teeCell[1]}`);
+  const spurStraightRot = straightRotForAxis(branchDir);
+  for (const [cx, cz] of spurCells) {
+    extraTiles.push({ gx: cx, gz: cz, def: STRAIGHT_NS, rotation: spurStraightRot });
+    claimed.add(`${cx},${cz}`);
+  }
+  nodeCells.push({ gx: teeCell[0], gz: teeCell[1], kind: 'junction', label: 'Jct' });
+  const spurEnd = spurCells[spurCells.length - 1]!;
+  nodeCells.push({ gx: spurEnd[0], gz: spurEnd[1], kind: 'station', label: stationLabel() });
 
   // 4b. Bridge on the opposite side.
   const bridgeRun = sides[bridgeSide];
@@ -349,12 +345,8 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   placePolygonLoop(layout, cells, overrides);
   for (const t of extraTiles) layout.place(t.gx, t.gz, t.def, t.rotation);
 
-  // ---------- 5. CROSS cells become junction nodes ----------
-  for (const tile of layout.tiles()) {
-    if (tile.def.kind !== 'cross-nesw') continue;
-    if (nodeCells.some((n) => n.gx === tile.gridX && n.gz === tile.gridZ)) continue;
-    nodeCells.push({ gx: tile.gridX, gz: tile.gridZ, kind: 'junction', label: `X-${junctionIdx++}` });
-  }
+  // No CROSS_NESW cells in this generator (no twists, no self-crossings),
+  // so we skip the CROSS scan that earlier templates needed.
 
   // Deduplicate by cell (stations should never coincide with TEEs/CROSSes,
   // but a paranoid filter keeps the builder happy).
@@ -385,80 +377,6 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
 }
 
 // --- Decoration helpers --------------------------------------------------
-
-function tryPlaceSiding(
-  run: { dir: Direction; cells: Array<readonly [number, number]> },
-  _rng: () => number,
-  walkSet: ReadonlySet<string>,
-  claimed: Set<string>,
-  overrides: Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>,
-  extraTiles: Array<{ gx: number; gz: number; def: TrackTileDef; rotation: Rotation }>,
-  nodeCells: Array<{ gx: number; gz: number; kind: NodeKind; label: string }>,
-  stationLabel: () => string,
-  junctionLabel: () => string,
-): boolean {
-  const dir = run.dir;
-  const branchDir = PERP_CCW[dir];
-  const [bdx, bdz] = dirVector(branchDir);
-  const teeEntry = run.cells[1]!;
-  const teeExit = run.cells[run.cells.length - 2]!;
-  const interior: Array<readonly [number, number]> = [];
-  for (let k = 2; k < run.cells.length - 2; k++) {
-    const [cx, cz] = run.cells[k]!;
-    interior.push([cx + bdx, cz + bdz]);
-  }
-  const entryCorner: readonly [number, number] = [teeEntry[0] + bdx, teeEntry[1] + bdz];
-  const exitCorner: readonly [number, number] = [teeExit[0] + bdx, teeExit[1] + bdz];
-  const branchCells: Array<readonly [number, number]> = [entryCorner, ...interior, exitCorner];
-  // Collision + bounds check. Branch cells must not overlap the walk or
-  // anything previously claimed, and must stay on the plate (±5 cells).
-  for (const [x, z] of branchCells) {
-    if (walkSet.has(`${x},${z}`) || claimed.has(`${x},${z}`)) return false;
-    if (Math.abs(x) > 5 || Math.abs(z) > 5) return false;
-  }
-  // TEEs as overrides on the main walk.
-  const teeRot = TEE_RUN_ROT[dir];
-  const teeRouting = new Map<Direction, Direction>([[opposite(dir), dir]]);
-  overrides.set(`${teeEntry[0]},${teeEntry[1]}`, { def: TEE_NES, rotation: teeRot, routing: teeRouting });
-  overrides.set(`${teeExit[0]},${teeExit[1]}`,   { def: TEE_NES, rotation: teeRot, routing: teeRouting });
-  claimed.add(`${teeEntry[0]},${teeEntry[1]}`);
-  claimed.add(`${teeExit[0]},${teeExit[1]}`);
-  // Branch corners.
-  const cornerRots = branchCornerRotations(dir);
-  extraTiles.push({ gx: entryCorner[0], gz: entryCorner[1], def: CURVE_NE, rotation: cornerRots.entrySide });
-  extraTiles.push({ gx: exitCorner[0],  gz: exitCorner[1],  def: CURVE_NE, rotation: cornerRots.exitSide });
-  claimed.add(`${entryCorner[0]},${entryCorner[1]}`);
-  claimed.add(`${exitCorner[0]},${exitCorner[1]}`);
-  // Branch interior: elevated when long enough (always — every track
-  // should have some vertical variety; bridges on the main loop are
-  // the other source).
-  const branchAxis = opposite(dir);
-  const elevate = interior.length >= 3;
-  if (elevate) {
-    const up = interior[0]!;
-    const dn = interior[interior.length - 1]!;
-    extraTiles.push({ gx: up[0], gz: up[1], def: RAMP_NS, rotation: RAMP_UP_ROT[branchAxis] });
-    extraTiles.push({ gx: dn[0], gz: dn[1], def: RAMP_NS, rotation: RAMP_DOWN_ROT[branchAxis] });
-    for (let k = 1; k < interior.length - 1; k++) {
-      const [cx, cz] = interior[k]!;
-      extraTiles.push({ gx: cx, gz: cz, def: ELEVATED_STRAIGHT_NS, rotation: ELEVATED_ROT[branchAxis] });
-    }
-  } else {
-    const rot = straightRotForAxis(branchAxis);
-    for (const [cx, cz] of interior) {
-      extraTiles.push({ gx: cx, gz: cz, def: STRAIGHT_NS, rotation: rot });
-    }
-  }
-  for (const [x, z] of interior) claimed.add(`${x},${z}`);
-  // Nodes.
-  nodeCells.push({ gx: teeEntry[0], gz: teeEntry[1], kind: 'junction', label: junctionLabel() });
-  nodeCells.push({ gx: teeExit[0], gz: teeExit[1], kind: 'junction', label: junctionLabel() });
-  if (interior.length > 0) {
-    const mid = interior[Math.floor(interior.length / 2)]!;
-    nodeCells.push({ gx: mid[0], gz: mid[1], kind: 'station', label: stationLabel() });
-  }
-  return true;
-}
 
 function placeBridge(
   run: { dir: Direction; cells: Array<readonly [number, number]> },
