@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { Sim } from './sim/Sim';
 import { mountHUD } from './ui/hud';
 import { Entity } from './sim/Entity';
@@ -116,10 +117,37 @@ function randomizeTrack(): void {
       targetCycle: stations,
       startAt: stations[0],
     }));
-    // Match the track's container translation so the train sits on the rails.
     train.object3d.position.y += 0.02;
     randomEntities.push(train);
+
+    // Per-frame switch updater: aims each junction's arrow toward the
+    // exit port the train will take when it next reaches that junction.
+    const switchUpdater: Entity = {
+      object3d: new THREE.Group(),
+      update: () => updateSwitches(track, train, graph),
+    };
+    randomEntities.push(sim.add(switchUpdater));
   }
+}
+
+function updateSwitches(
+  track: JunctionTrack,
+  train: GraphTrain,
+  graph: ReturnType<typeof generateRandomGraphTrack>['graph'],
+): void {
+  const currentEdge = (train as unknown as { currentEdge: typeof graph.edges[number] }).currentEdge;
+  const direction = (train as unknown as { direction: 1 | -1 }).direction;
+  const heading = direction === 1 ? currentEdge.to : currentEdge.from;
+  if (heading.kind !== 'junction') return;
+  // Find the edge the train will take next at this junction (shortest path
+  // to its current target).
+  const target = (train as unknown as { currentTargetNode(): typeof graph.nodes[number] }).currentTargetNode();
+  if (target === heading) return; // arriving at target; nothing to switch
+  const path = graph.shortestPath(heading, target);
+  if (!path || path.length === 0) return;
+  const nextEdge = path[0]!;
+  const exitPort = nextEdge.from === heading ? nextEdge.fromExitPort : nextEdge.toEntryPort;
+  track.setSwitchState(heading.id, exitPort);
 }
 
 function mulberry32(seed: number): () => number {

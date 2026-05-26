@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
-import { Direction, RAMP_HEIGHT, TILE_SIZE, effectivePorts } from '../world/trackTile';
+import { Direction, RAMP_HEIGHT, TILE_SIZE, dirVector, effectivePorts } from '../world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../world/trackGraph';
 import { TrackLayout } from '../world/trackLayout';
 
@@ -40,11 +40,24 @@ export interface JunctionTrackOptions {
 export class JunctionTrack implements Entity {
   readonly object3d: THREE.Group;
   readonly graph: TrackGraph;
+  /** Switch-state arrows, indexed by junction node id. Each arrow sits
+   *  at the TEE's cell centre and rotates to point along the train's
+   *  upcoming exit direction. setSwitchState rotates them per frame. */
+  private switchArrows = new Map<string, THREE.Object3D>();
 
   constructor(opts: JunctionTrackOptions) {
     this.graph = opts.graph;
     this.object3d = this.build();
     if (opts.position) this.object3d.position.fromArray(opts.position);
+  }
+
+  /** Point the switch arrow at `nodeId` toward `exitPort`. Called per
+   *  frame from the sim with the train's currently-planned exit. */
+  setSwitchState(nodeId: string, exitPort: Direction): void {
+    const arrow = this.switchArrows.get(nodeId);
+    if (!arrow) return;
+    const [dx, dz] = dirVector(exitPort);
+    arrow.rotation.y = Math.atan2(dx, dz);
   }
 
   private build(): THREE.Group {
@@ -67,6 +80,30 @@ export class JunctionTrack implements Entity {
       pillar.castShadow = true;
       pillar.receiveShadow = true;
       g.add(pillar);
+    }
+
+    // --- Switch-state arrows on each junction node ---
+    // A small bright cone sits at the TEE cell centre and rotates to
+    // point in the direction the train will exit next. Gives the user a
+    // visual cue for "the switch is set this way".
+    const arrowMat = new THREE.MeshStandardMaterial({
+      color: 0xffaa22, emissive: 0xffaa22, emissiveIntensity: 0.5,
+    });
+    for (const node of this.graph.nodes) {
+      if (node.kind !== 'junction') continue;
+      const arrowGroup = new THREE.Group();
+      arrowGroup.position.set(node.pos.x, node.pos.y + 0.6, node.pos.z);
+      // Cone, pointing along +Z by default (rotation.y = 0 → south).
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.18, 0.5, 12),
+        arrowMat,
+      );
+      cone.rotation.x = Math.PI / 2; // lay it flat so the tip points along XZ
+      cone.position.z = 0.25;        // tip offset so the arrow shows direction
+      cone.castShadow = true;
+      arrowGroup.add(cone);
+      g.add(arrowGroup);
+      this.switchArrows.set(node.id, arrowGroup);
     }
 
     // --- Edges: one continuous strip per edge ---
