@@ -184,6 +184,16 @@ const PERP_CCW: Record<Direction, Direction> = {
   N: 'W', W: 'S', S: 'E', E: 'N',
 };
 
+/** CURVE_NE rotation that redirects an L-spur from perpendicular-outward
+ *  (entering toward the main TEE) into parallel-to-main (the spur arm).
+ *  Indexed by the MAIN run direction. Pairs:
+ *    E run: curve ports {S, W}  (enters from S = TEE side, exits W = parallel-against-E)
+ *    S run: curve ports {W, N}
+ *    W run: curve ports {N, E}
+ *    N run: curve ports {E, S}
+ */
+const CURVE_ROT_FOR_RUN: Record<Direction, Rotation> = { E: 2, S: 1, W: 0, N: 3 };
+
 /** Straight tile rotation that exposes ports along a given axis. */
 function straightRotForAxis(dir: Direction): Rotation {
   return dir === 'N' || dir === 'S' ? 0 : 1;
@@ -224,11 +234,10 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   // TEEs + parallel branch read as a "tongue" hanging off the loop
   // rather than a real switch.)
   // ---------- 1. Rectangle ----------
-  // 7-8 wide × 6-7 tall fits inside ±5 cells from origin even with a
-  // branch column 1 cell off each side (Math.round centring of odd
-  // widths leans by 0.5 cell — odd values 9+ exceed the bound).
-  const w = 7 + Math.floor(rng() * 2); // 7-8
-  const h = 6 + Math.floor(rng() * 2); // 6-7
+  // 6-7 wide × 5-6 tall leaves room for a 3-cell L-spur (curve + 1-2
+  // parallel straights) on any of the 4 sides without exceeding ±5.
+  const w = 6 + Math.floor(rng() * 2); // 6-7
+  const h = 5 + Math.floor(rng() * 2); // 5-6
   const steps: WalkStep[] = [['E', w], ['S', h], ['W', w], ['N', h]];
   const origin = centeredOrigin(steps);
 
@@ -273,32 +282,39 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
     left:   { dir: 'N', cells: cells.slice(2 * w + h + 1, 2 * w + 2 * h) },
   };
 
-  // ---------- 3. Pick spur side (must have plate room outward) ----------
-  // For each candidate side, compute the maximum spur length (cells the
-  // branch can extend perpendicular to the side before hitting ±5).
-  // Pick the FIRST shuffled side with at least 1 cell of room.
+  // ---------- 3. Pick spur side ----------
+  // L-spur needs: 1 cell perpendicular (CURVE) + N cells parallel to main
+  // (STRAIGHTs + STATION). Total branch footprint: ≥2 cells out, ≥2 cells
+  // along the side. Pick the first side that has the room.
   const sideKeys: SideKey[] = ['top', 'right', 'bottom', 'left'];
   for (let i = sideKeys.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [sideKeys[i], sideKeys[j]] = [sideKeys[j]!, sideKeys[i]!];
   }
-  const maxSpurLen = (side: SideKey): number => {
+  const lSpurFits = (side: SideKey): boolean => {
     const run = sides[side];
-    if (run.cells.length === 0) return 0;
+    if (run.cells.length === 0) return false;
     const teeCell = run.cells[Math.floor(run.cells.length / 2)]!;
-    const bd = PERP_CCW[run.dir];
-    const [bdx, bdz] = dirVector(bd);
-    let len = 0;
-    for (let k = 1; k <= 4; k++) {
-      const cx = teeCell[0] + bdx * k;
-      const cz = teeCell[1] + bdz * k;
-      if (Math.abs(cx) > 5 || Math.abs(cz) > 5) break;
-      if (walkSet.has(`${cx},${cz}`)) break;
-      len = k;
+    const perpDir = PERP_CCW[run.dir];
+    const [pdx, pdz] = dirVector(perpDir);
+    // Curve cell: 1 step perpendicular from TEE.
+    const curveCell: [number, number] = [teeCell[0] + pdx, teeCell[1] + pdz];
+    if (Math.abs(curveCell[0]) > 5 || Math.abs(curveCell[1]) > 5) return false;
+    if (walkSet.has(`${curveCell[0]},${curveCell[1]}`)) return false;
+    // First parallel cell: 1 step CCW of perpDir (parallel to main, on the
+    // outward side). Use perpCCW of perpDir, which is OPPOSITE of runDir.
+    const parDir = opposite(run.dir);
+    const [adx, adz] = dirVector(parDir);
+    // Need at least 2 cells parallel (1 straight + 1 station).
+    for (let k = 1; k <= 2; k++) {
+      const cx = curveCell[0] + adx * k;
+      const cz = curveCell[1] + adz * k;
+      if (Math.abs(cx) > 5 || Math.abs(cz) > 5) return false;
+      if (walkSet.has(`${cx},${cz}`)) return false;
     }
-    return len;
+    return true;
   };
-  const spurSide = sideKeys.find((s) => maxSpurLen(s) >= 1);
+  const spurSide = sideKeys.find(lSpurFits);
   if (!spurSide) return null;
   const oppositeOf: Record<SideKey, SideKey> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
   const bridgeSide = oppositeOf[spurSide];
@@ -313,30 +329,47 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   let stationIdx = 0;
   const stationLabel = () => String.fromCharCode(65 + stationIdx++);
 
-  // 4a. Y-spur on the chosen side: TEE at the side's midpoint, branch
-  // extending outward, dead-end station at the end.
+  // 4a. L-spur on the chosen side. Layout (run direction E, perp = N):
+  //
+  //   . station ─ straight ┘ <- curve turns N→W, station to its W
+  //   . . . . . . . . . . │
+  //   ─ ─ ─ TEE ─ ─ ─ ─ ─ ─    main edge with TEE
+  //
+  // The TEE's branch peels off via its samplePath arc (smooth), the
+  // CURVE redirects 90° parallel to main, and 1-2 STRAIGHTs run to
+  // the station. Reads as a smooth Y peeling off, not a perpendicular T.
   const spurRun = sides[spurSide];
   const teeCell = spurRun.cells[Math.floor(spurRun.cells.length / 2)]!;
   const runDir = spurRun.dir;
-  const branchDir = PERP_CCW[runDir];
-  const [bdx, bdz] = dirVector(branchDir);
-  // Use 2 cells when the plate allows; otherwise the max that fits.
-  const spurLen = Math.min(2, maxSpurLen(spurSide));
-  const spurCells: Array<readonly [number, number]> = [];
-  for (let k = 1; k <= spurLen; k++) {
-    spurCells.push([teeCell[0] + bdx * k, teeCell[1] + bdz * k]);
-  }
+  const perpDir = PERP_CCW[runDir];      // outward from main
+  const parDir = opposite(runDir);       // parallel to main (the direction the L-arm points)
+  const [pdx, pdz] = dirVector(perpDir);
+  const [adx, adz] = dirVector(parDir);
+  // TEE on the main loop (override the straight at teeCell).
   const teeRot = TEE_RUN_ROT[runDir];
   const teeRouting = new Map<Direction, Direction>([[opposite(runDir), runDir]]);
   overrides.set(`${teeCell[0]},${teeCell[1]}`, { def: TEE_NES, rotation: teeRot, routing: teeRouting });
   claimed.add(`${teeCell[0]},${teeCell[1]}`);
-  const spurStraightRot = straightRotForAxis(branchDir);
-  for (const [cx, cz] of spurCells) {
-    extraTiles.push({ gx: cx, gz: cz, def: STRAIGHT_NS, rotation: spurStraightRot });
+  // Curve cell: 1 cell perpendicular outward from the TEE. Ports needed:
+  // {opposite(perpDir), parDir} — entry from the TEE side, exit toward
+  // the L-arm direction.
+  const curveCell: [number, number] = [teeCell[0] + pdx, teeCell[1] + pdz];
+  const curveRot = CURVE_ROT_FOR_RUN[runDir];
+  extraTiles.push({ gx: curveCell[0], gz: curveCell[1], def: CURVE_NE, rotation: curveRot });
+  claimed.add(`${curveCell[0]},${curveCell[1]}`);
+  // Parallel arm: 1-2 straight cells + station at the end.
+  const armLen = 2; // 1 straight + 1 station cell, fits inside plate per lSpurFits.
+  const armStraightRot = straightRotForAxis(parDir);
+  const armCells: Array<[number, number]> = [];
+  for (let k = 1; k <= armLen; k++) {
+    armCells.push([curveCell[0] + adx * k, curveCell[1] + adz * k]);
+  }
+  for (const [cx, cz] of armCells) {
+    extraTiles.push({ gx: cx, gz: cz, def: STRAIGHT_NS, rotation: armStraightRot });
     claimed.add(`${cx},${cz}`);
   }
   nodeCells.push({ gx: teeCell[0], gz: teeCell[1], kind: 'junction', label: 'Jct' });
-  const spurEnd = spurCells[spurCells.length - 1]!;
+  const spurEnd = armCells[armCells.length - 1]!;
   nodeCells.push({ gx: spurEnd[0], gz: spurEnd[1], kind: 'station', label: stationLabel() });
 
   // 4b. Bridge on the opposite side.
