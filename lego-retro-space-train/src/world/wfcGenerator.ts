@@ -252,6 +252,8 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
         bump(`build-graph-threw:${(err as Error).message.slice(0, 40)}`);
         continue;
       }
+      // (Skipping pruneUngraphedCells — caused catastrophic shrink on
+      // some seeds because midCells coverage isn't a complete signal.)
       const allStations = graph.nodes.filter((n) => n.kind === 'station');
       const junctions = graph.nodes.filter((n) => n.kind === 'junction');
       if (allStations.length < 2) { bump('not-enough-station-nodes'); continue; }
