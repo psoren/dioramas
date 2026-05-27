@@ -30,6 +30,7 @@ describe('render WFC batch', () => {
       parallel?: number;
       elevatedOK?: boolean;
       elevatedThrough?: number;
+      elevatedErr?: string;
       error?: string;
     }> = [];
     for (let i = 0; i < 10; i++) {
@@ -56,15 +57,18 @@ describe('render WFC batch', () => {
         }
         let elevatedOK = false;
         let elevatedThrough = 0;
+        let elevatedErr: string | undefined;
         try {
           const elev = extractGraphFromLayout(layout, rng, { preferPrimary: true });
           const through = elev.stations.filter((st) => st.edges.length >= 2);
           elevatedThrough = through.length;
           elevatedOK = through.length >= 2;
-        } catch { /* falls back to ground */ }
+        } catch (e) {
+          elevatedErr = (e as Error).message.slice(0, 120);
+        }
         const svg = renderLayoutSvg(layout, size, parallel, elevatedOK);
         fs.writeFileSync(path.join(outDir, `set-${i + 1}.svg`), svg);
-        sets.push({ seed, ok: true, tiles: layout.tiles().length, parallel, elevatedOK, elevatedThrough });
+        sets.push({ seed, ok: true, tiles: layout.tiles().length, parallel, elevatedOK, elevatedThrough, elevatedErr });
       } catch (e) {
         sets.push({ seed, ok: false, error: (e as Error).message.slice(0, 200) });
       }
@@ -124,6 +128,7 @@ interface BatchEntry {
     parallel?: number;
     elevatedOK?: boolean;
     elevatedThrough?: number;
+    elevatedErr?: string;
     error?: string;
   }>;
   notes: string;

@@ -117,10 +117,14 @@
               }
               const parallelTag = (s.parallel ?? 0) > 0 ? `parallel=${s.parallel}` : 'parallel=0';
               const elevTag = s.elevatedOK ? '<span class="ok">elev✓</span>' : 'elev✗';
+              const errLine = s.elevatedErr && !s.elevatedOK
+                ? `<div class="meta" style="color:#a66;font-size:9px">${escapeHtml(s.elevatedErr)}</div>`
+                : '';
               return `
                 <div class="set">
                   <img src="/batches/${batch.batchId}/set-${i + 1}.svg" alt="set ${i + 1}">
                   <div class="meta">seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag}</div>
+                  ${errLine}
                 </div>
               `;
             }).join('')}

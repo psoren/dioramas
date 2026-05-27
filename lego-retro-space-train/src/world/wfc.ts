@@ -105,16 +105,18 @@ export function enumerateVariants(maxLevel = 1): Variant[] {
           for (const p of ports2) portYMap[p] = ys;
         } else if (def.kind === 'parallel-overpass-ramp-ns') {
           // Transition: one side multi-Y (matches a parallel overpass),
-          // opposite side single-Y at Y=0 (matches normal ground track).
-          // Base rotation (0): N = [0, H], S = [0] — overpass to the
-          // north, ground to the south. Rotation rotates this pair.
+          // opposite side single-Y at Y=lower (matches normal ground
+          // track). The primary RAMP_NS at rotation r has its HIGH port
+          // on the side rotateDir(S, r) — i.e., rot 0 → S@H, rot 1 →
+          // W@H, rot 2 → N@H, rot 3 → E@H. The overpass attaches to
+          // the high side; ground attaches to the opposite low side.
           const yLow = level * RAMP_HEIGHT;
           const yHigh = (level + 1) * RAMP_HEIGHT;
           const overpassSides: Record<number, [Direction, Direction]> = {
-            0: ['N', 'S'], // overpass N, ground S
-            1: ['E', 'W'],
-            2: ['S', 'N'],
-            3: ['W', 'E'],
+            0: ['S', 'N'], // RAMP rot 0: S=high → overpass S, ground N
+            1: ['E', 'W'], // RAMP rot 1: E=high → overpass E, ground W
+            2: ['N', 'S'], // RAMP rot 2: N=high → overpass N, ground S
+            3: ['W', 'E'], // RAMP rot 3: W=high → overpass W, ground E
           };
           const [overpassDir, groundDir] = overpassSides[rot]!;
           portYMap[overpassDir] = [yLow, yHigh];
@@ -176,9 +178,13 @@ function defaultWeight(def: TrackTileDef): number {
     case 'elevated-curve-ne': return 0.25;
     case 'station-n': return 0.4;
     case 'under-pass-nesw': return 0.3;
-    case 'parallel-overpass-ns': return 0.3;
-    case 'parallel-overpass-curve-ne': return 0.3;
-    case 'parallel-overpass-ramp-ns': return 0.3;
+    // Parallel overpasses are the headline feature — bump them aggressively
+    // so WFC picks them whenever adjacency allows (instead of preferring
+    // a straight ground tile). Transition tiles also raised because
+    // every overpass section needs at least 2 of them to attach to ground.
+    case 'parallel-overpass-ns': return 2.5;
+    case 'parallel-overpass-curve-ne': return 2.0;
+    case 'parallel-overpass-ramp-ns': return 1.5;
     case 'empty': return 0.005;
     default: return 1;
   }

@@ -1,5 +1,403 @@
 [
   {
+    "batchId": "2026-05-27T16-47-08-06b2694",
+    "commit": "06b2694",
+    "timestamp": "2026-05-27T16:47:11.671Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 10,
+      "parallelTotal": 195,
+      "elevatedOK": 9
+    },
+    "sets": [
+      {
+        "seed": 108937,
+        "ok": true,
+        "tiles": 124,
+        "parallel": 22,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 110351,
+        "ok": true,
+        "tiles": 79,
+        "parallel": 8,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 111253,
+        "ok": true,
+        "tiles": 99,
+        "parallel": 16,
+        "elevatedOK": false,
+        "elevatedThrough": 1
+      },
+      {
+        "seed": 112191,
+        "ok": true,
+        "tiles": 121,
+        "parallel": 18,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 103095,
+        "ok": true,
+        "tiles": 122,
+        "parallel": 21,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 104213,
+        "ok": true,
+        "tiles": 107,
+        "parallel": 26,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 105098,
+        "ok": true,
+        "tiles": 125,
+        "parallel": 17,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 106140,
+        "ok": true,
+        "tiles": 144,
+        "parallel": 36,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 106990,
+        "ok": true,
+        "tiles": 93,
+        "parallel": 15,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 107999,
+        "ok": true,
+        "tiles": 105,
+        "parallel": 16,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      }
+    ],
+    "notes": "Iter 4: fixed transition port mapping for rot 1 and rot 3 (RAMP_NS uses CCW rotation; high-Y side rotates CCW). Now rot 1 high=E and rot 3 high=W."
+  },
+  {
+    "batchId": "2026-05-27T16-45-34-06b2694",
+    "commit": "06b2694",
+    "timestamp": "2026-05-27T16:45:37.756Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 9,
+      "parallelTotal": 103,
+      "elevatedOK": 5
+    },
+    "sets": [
+      {
+        "seed": 104954,
+        "ok": true,
+        "tiles": 130,
+        "parallel": 2,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (0,-6) y=1.4"
+      },
+      {
+        "seed": 105760,
+        "ok": true,
+        "tiles": 146,
+        "parallel": 26,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 106795,
+        "ok": true,
+        "tiles": 123,
+        "parallel": 10,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (0,1) y=1.4"
+      },
+      {
+        "seed": 107741,
+        "ok": true,
+        "tiles": 111,
+        "parallel": 7,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (-3,-6) y=1.4"
+      },
+      {
+        "seed": 108614,
+        "ok": true,
+        "tiles": 108,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 109430,
+        "ok": true,
+        "tiles": 124,
+        "parallel": 13,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (-4,2) y=1.4"
+      },
+      {
+        "seed": 110573,
+        "ok": true,
+        "tiles": 87,
+        "parallel": 17,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (-1,1) y=1.4"
+      },
+      {
+        "seed": 111590,
+        "ok": true,
+        "tiles": 108,
+        "parallel": 4,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 112688,
+        "ok": true,
+        "tiles": 95,
+        "parallel": 7,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 113902,
+        "ok": true,
+        "tiles": 99,
+        "parallel": 17,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      }
+    ],
+    "notes": "Iter 3: fixed transition tile portY mapping — was 180° off (RAMP_NS rot 0 has HIGH port at S, not N as I had it). With keep-aggressive weights (NS:2.5, curve:2.0, ramp:1.5), elevated trace should now follow ramps correctly."
+  },
+  {
+    "batchId": "2026-05-27T16-43-47-06b2694",
+    "commit": "06b2694",
+    "timestamp": "2026-05-27T16:43:49.771Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 9,
+      "parallelTotal": 126,
+      "elevatedOK": 1
+    },
+    "sets": [
+      {
+        "seed": 107439,
+        "ok": true,
+        "tiles": 72,
+        "parallel": 9,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (-1,-3) y=1.4"
+      },
+      {
+        "seed": 108414,
+        "ok": true,
+        "tiles": 105,
+        "parallel": 20,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (3,-1) y=2.8"
+      },
+      {
+        "seed": 109322,
+        "ok": true,
+        "tiles": 111,
+        "parallel": 8,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (6,-4) y=1.4"
+      },
+      {
+        "seed": 110381,
+        "ok": true,
+        "tiles": 124,
+        "parallel": 24,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (3,1) y=1.4"
+      },
+      {
+        "seed": 111768,
+        "ok": true,
+        "tiles": 130,
+        "parallel": 8,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 112863,
+        "ok": true,
+        "tiles": 77,
+        "parallel": 0,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (6,-2) y=1.4"
+      },
+      {
+        "seed": 113637,
+        "ok": true,
+        "tiles": 138,
+        "parallel": 24,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (4,-1) y=2.8"
+      },
+      {
+        "seed": 114410,
+        "ok": true,
+        "tiles": 92,
+        "parallel": 8,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (-2,3) y=1.4"
+      },
+      {
+        "seed": 115423,
+        "ok": true,
+        "tiles": 123,
+        "parallel": 17,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (-5,1) y=2.8"
+      },
+      {
+        "seed": 116200,
+        "ok": true,
+        "tiles": 123,
+        "parallel": 8,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "elevatedErr": "traceEdge hit dead end at (-4,-2) y=1.4"
+      }
+    ],
+    "notes": "Iter 2: same weights as iter 1; re-running to capture elevated-trace failure reasons in per-set metadata so we can target fixes."
+  },
+  {
+    "batchId": "2026-05-27T16-42-51-06b2694",
+    "commit": "06b2694",
+    "timestamp": "2026-05-27T16:42:53.840Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 9,
+      "parallelTotal": 112,
+      "elevatedOK": 2
+    },
+    "sets": [
+      {
+        "seed": 101007,
+        "ok": true,
+        "tiles": 112,
+        "parallel": 3,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 101890,
+        "ok": true,
+        "tiles": 126,
+        "parallel": 13,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 102848,
+        "ok": true,
+        "tiles": 86,
+        "parallel": 7,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 103767,
+        "ok": true,
+        "tiles": 93,
+        "parallel": 0,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 104785,
+        "ok": true,
+        "tiles": 85,
+        "parallel": 9,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 106150,
+        "ok": true,
+        "tiles": 143,
+        "parallel": 26,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 107084,
+        "ok": true,
+        "tiles": 86,
+        "parallel": 8,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 108175,
+        "ok": true,
+        "tiles": 91,
+        "parallel": 10,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 109161,
+        "ok": true,
+        "tiles": 105,
+        "parallel": 17,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 110055,
+        "ok": true,
+        "tiles": 118,
+        "parallel": 19,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      }
+    ],
+    "notes": "Iter 1: bumped parallel-overpass tile weights from 0.3 to {NS:2.5, curve:2.0, ramp:1.5}. Hypothesis: WFC will pick them more often where adjacency allows."
+  },
+  {
     "batchId": "2026-05-27T16-41-45-a48b819",
     "commit": "a48b819",
     "timestamp": "2026-05-27T16:41:46.401Z",
