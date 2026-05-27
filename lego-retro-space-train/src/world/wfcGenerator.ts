@@ -12,8 +12,9 @@ import { TrackLayout, portY } from './trackLayout';
 import { UNDER_PASS_NESW } from './trackTile';
 import { buildGraphFromLayout, NodeKind, TrackGraph, GraphNode } from './trackGraph';
 import {
-  dirVector, effectivePorts, opposite, PlacedTile, STRAIGHT_NS,
-  ELEVATED_STRAIGHT_NS, CURVE_NE, ELEVATED_CURVE_NE, RAMP_NS, RAMP_HEIGHT,
+  Direction, DIRECTIONS, dirVector, effectivePorts, opposite, PlacedTile,
+  Rotation, STRAIGHT_NS, ELEVATED_STRAIGHT_NS, CURVE_NE, ELEVATED_CURVE_NE,
+  RAMP_NS, RAMP_HEIGHT, TEE_NES, CROSS_NESW, TrackTileDef,
 } from './trackTile';
 import {
   AdjacencyTable,
@@ -62,12 +63,10 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
   const variants = enumerateVariants(1);
   const table = buildAdjacencyTable(variants);
   const variantById = table.byId;
-  // Pre-seed: STATION_N at centre. Wavefront grows from there.
+  // No pre-seed. Plain WFC + bridgeComponents post-pass handles
+  // connectivity. Station placement is later via extractGraphFromLayout
+  // (it picks STRAIGHT cells as through-stations).
   const preSeed = new Map<string, string>();
-  const cx = Math.floor(size / 2);
-  const cy = Math.floor(size / 2);
-  const stationId = findVariantId('station-n', 0, 0, table);
-  if (stationId) preSeed.set(`${cx},${cy}`, stationId);
   void buildMultiLevelPreSeed;
   // Merge the cumulative layout's tiles into the pre-seed so the new
   // solve fits AROUND what's already on the plate. Convert each tile to
@@ -168,6 +167,11 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
       // so the output may have multiple disconnected blobs. Instead of
       // rejecting (which kills success rate), we find the LARGEST
       // connected component and drop every tile not in it.
+      // BRIDGE first: where two components are distance-1 apart (cells
+      // directly adjacent but their facing sides have null ports),
+      // upgrade both boundary tiles so they connect (STRAIGHT → TEE →
+      // CROSS as needed). Then drop whatever's still disconnected.
+      bridgeComponents(layout);
       // Re-enabled the largest-component filter. We tried skipping it to
       // keep more cells in the layout, but the graph builder then
       // dead-ended on disconnected sub-clusters whose internal adjacency
@@ -355,6 +359,122 @@ function portYInLayout(t: PlacedTile, p: 'N' | 'E' | 'S' | 'W'): number {
  *  This is how we ship a single-network layout from a WFC output that
  *  technically satisfies local rules but produced multiple disconnected
  *  blobs. */
+/** Bridge disconnected components by upgrading boundary tiles. For
+ *  every pair of cells in different components that are directly
+ *  adjacent (distance 1), if both tiles have null ports on the facing
+ *  sides, upgrade them so a port appears on each (STRAIGHT → TEE,
+ *  CURVE → TEE, TEE → CROSS). After the upgrade the components are
+ *  one. Iterates until no more pairs can be bridged.
+ *
+ *  Only operates on ground-level tiles (STRAIGHT_NS / CURVE_NE /
+ *  TEE_NES) — elevated/ramp/station cells can't be upgraded without
+ *  changing semantics, and the cell's `level` must be 0.
+ *
+ *  Returns true if anything changed. */
+function bridgeComponents(layout: TrackLayout): boolean {
+  let totalBridges = 0;
+  for (let pass = 0; pass < 50; pass++) {
+    const components = buildPortComponents(layout);
+    if (components.length <= 1) break;
+    const compOf = new Map<PlacedTile, number>();
+    for (let i = 0; i < components.length; i++) {
+      for (const t of components[i]!) compOf.set(t, i);
+    }
+    let bridged = false;
+    outer: for (let i = 0; i < components.length && !bridged; i++) {
+      for (const tileA of components[i]!) {
+        if ((tileA.level ?? 0) !== 0) continue;
+        for (const port of DIRECTIONS) {
+          if (effectivePorts(tileA).includes(port)) continue;
+          const [dx, dz] = dirVector(port);
+          const nx = tileA.gridX + dx;
+          const nz = tileA.gridZ + dz;
+          const tileB = layout.get(nx, nz);
+          if (!tileB || (tileB.level ?? 0) !== 0) continue;
+          if (compOf.get(tileB) === i) continue; // already same component
+          // tileB's facing side is `opposite(port)`. To connect we need
+          // a port on both sides; check that B's side is currently null
+          // too (otherwise port-Y would have to match — not handled).
+          if (effectivePorts(tileB).includes(opposite(port))) continue;
+          const upA = upgradeAddPort(tileA, port);
+          const upB = upgradeAddPort(tileB, opposite(port));
+          if (!upA || !upB) continue;
+          // Apply both upgrades.
+          layout.remove(tileA.gridX, tileA.gridZ);
+          layout.place(tileA.gridX, tileA.gridZ, upA.def, upA.rotation);
+          layout.remove(tileB.gridX, tileB.gridZ);
+          layout.place(tileB.gridX, tileB.gridZ, upB.def, upB.rotation);
+          totalBridges++;
+          bridged = true;
+          break outer;
+        }
+      }
+    }
+    if (!bridged) break;
+  }
+  return totalBridges > 0;
+}
+
+/** Connected components by port adjacency at ground level. Returns
+ *  arrays of tiles, one per component. */
+function buildPortComponents(layout: TrackLayout): PlacedTile[][] {
+  const tiles = layout.tiles();
+  const unvisited = new Set<PlacedTile>(tiles);
+  const components: PlacedTile[][] = [];
+  while (unvisited.size > 0) {
+    const start = unvisited.values().next().value as PlacedTile;
+    unvisited.delete(start);
+    const queue: PlacedTile[] = [start];
+    const component: PlacedTile[] = [start];
+    while (queue.length > 0) {
+      const t = queue.pop()!;
+      for (const p of effectivePorts(t)) {
+        const [dx, dz] = dirVector(p);
+        const yHere = portYInLayout(t, p);
+        const wantOpp = opposite(p);
+        const primary = layout.get(t.gridX + dx, t.gridZ + dz);
+        const under = layout.getUnder(t.gridX + dx, t.gridZ + dz);
+        for (const cand of [primary, under]) {
+          if (!cand || !unvisited.has(cand)) continue;
+          const candPorts = effectivePorts(cand);
+          if (!candPorts.includes(wantOpp)) continue;
+          if (Math.abs(portYInLayout(cand, wantOpp) - yHere) > 0.01) continue;
+          unvisited.delete(cand);
+          component.push(cand);
+          queue.push(cand);
+        }
+      }
+    }
+    components.push(component);
+  }
+  return components;
+}
+
+/** Find an upgrade-replacement tile that has all of `tile`'s current
+ *  effective ports PLUS `addPort`. Only handles ground-level
+ *  STRAIGHT_NS / CURVE_NE / TEE_NES. Returns null otherwise. */
+function upgradeAddPort(
+  tile: PlacedTile,
+  addPort: Direction,
+): { def: TrackTileDef; rotation: Rotation } | null {
+  if ((tile.level ?? 0) !== 0) return null;
+  const currentPorts = effectivePorts(tile);
+  if (currentPorts.includes(addPort)) return { def: tile.def, rotation: tile.rotation };
+  if (tile.def.kind !== 'straight-ns' && tile.def.kind !== 'curve-ne' && tile.def.kind !== 'tee-nes') return null;
+  const required = new Set<Direction>([...currentPorts, addPort]);
+  if (required.size === 3) {
+    for (let r = 0; r < 4; r++) {
+      const teePorts = effectivePorts({ gridX: 0, gridZ: 0, def: TEE_NES, rotation: r as Rotation });
+      if (teePorts.length === 3 && teePorts.every((p) => required.has(p))) {
+        return { def: TEE_NES, rotation: r as Rotation };
+      }
+    }
+  } else if (required.size === 4) {
+    return { def: CROSS_NESW, rotation: 0 };
+  }
+  return null;
+}
+
 /** Detect elevated chains (primary ELEVATED tiles) that no ramp can
  *  reach and strip their primary so the cell falls back to its under-
  *  tile (or empty if no under). BFS at Y=H starting from every ramp's

@@ -168,13 +168,13 @@ function supportsLevels(def: TrackTileDef): boolean {
  *  moderately common so the grid can leave whitespace. */
 function defaultWeight(def: TrackTileDef): number {
   switch (def.kind) {
-    // Wavefront observe + moderate branch bias. Higher TEE/CURVE
-    // weight than STRAIGHT to encourage branching, but not so high
-    // that adjacency contradictions blow up the solver.
-    case 'straight-ns': return 2;
+    // Plain WFC + modest branch bias. Heavy TEE weights produced
+    // contradiction storms (5/10 solves failed). Bias is gentle now;
+    // bridgeComponents handles the disconnects that result.
+    case 'straight-ns': return 4;
     case 'curve-ne': return 4;
-    case 'tee-nes': return 5;
-    case 'cross-nesw': return 1;
+    case 'tee-nes': return 2;
+    case 'cross-nesw': return 0.5;
     case 'ramp-ns': return 0.2;
     case 'ramp-ns-tall': return 0.2;
     case 'elevated-straight-ns': return 0.4;
@@ -360,13 +360,12 @@ function solveOnce(
 
   // Observe loop: collapse one cell at a time, propagate.
   for (;;) {
-    // Wavefront observe: prefer cells adjacent to already-collapsed
-    // ones so the solve grows out from the pre-seed (a STATION_N at
-    // origin). When the wavefront is exhausted but cells remain
-    // un-collapsed, falls back to global lowest-entropy. Result is
-    // then run through keepOnlyLargestComponent in the generator so
-    // only the wave-grown blob survives.
-    const next = pickFrontierCell(cellOptions, width, height, rng);
+    // Plain WFC observe (lowest-entropy globally). Wavefront variant
+    // exists below but isn't wired in — it cost more than it gave
+    // (slow + leaked when frontier exhausted). Disconnects from plain
+    // WFC are handled by bridgeComponents + keepOnlyLargestComponent
+    // in the generator.
+    const next = pickLowestEntropyCell(cellOptions, rng);
     if (!next) break; // all collapsed
     const opts2 = cellOptions.get(next)!;
     const choice = weightedPick([...opts2], table, rng, opts.weightOverride);
@@ -444,12 +443,11 @@ function pickLowestEntropyCell(
   return ties[Math.floor(rng() * ties.length)]!;
 }
 
-/** Frontier-biased observe: pick the lowest-entropy cell among those
- *  ADJACENT to an already-collapsed cell. The "wavefront" WFC variant —
- *  the solution grows outward from a pre-seeded anchor. Combined with a
- *  STATION_N pre-seed at the grid centre and keepOnlyLargestComponent
- *  post-filter, this gives connectivity-by-construction: every cell in
- *  the final layout is reachable from the seed. */
+/** Frontier-biased observe: kept here but not wired in (see solveOnce).
+ *  The wavefront variant was slow (O(n²) per observe) and leaked
+ *  disconnected components when its frontier finished. Documented
+ *  as reference for future work. */
+// @ts-expect-error retained for reference, not wired in
 function pickFrontierCell(
   cellOptions: Map<string, Set<string>>,
   width: number,
