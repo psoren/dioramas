@@ -177,6 +177,7 @@
             • parallel: <span class="${batch.stats.layoutsWithParallel >= 7 ? 'good' : 'bad'}">${batch.stats.layoutsWithParallel}/${batch.stats.total}</span> (${parallelPct}%)
             • elevated graph: <span class="${batch.stats.elevatedOK >= 7 ? 'good' : 'bad'}">${batch.stats.elevatedOK}/${batch.stats.total}</span> (${elevatedPct}%)
             • parallel cells total: ${batch.stats.parallelTotal}
+            ${batch.stats.coverageMean !== undefined ? `• coverage mean: <span class="${batch.stats.coverageMean >= 0.7 ? 'good' : 'bad'}">${(batch.stats.coverageMean * 100).toFixed(0)}%</span>` : ''}
           </div>
           <div class="notes ${batch.notes ? '' : 'empty'}">${batch.notes || 'No notes yet.'}</div>
           <div class="sets">
@@ -195,13 +196,16 @@
               // Each set's render-stack is referenced by data-png so the
               // missing-image handler (handleMissingPng, defined below)
               // can mutate it ONCE without re-triggering itself.
+              const covTag = s.coverage !== undefined
+                ? `<span style="color:${s.coverage >= 0.7 ? '#5e5' : s.coverage >= 0.4 ? '#bb5' : '#a66'}">cov ${(s.coverage * 100).toFixed(0)}%</span>`
+                : '';
               return `
                 <div class="set">
                   <div class="render-stack" data-png="${pngUrl}" onclick="openLightbox(this.dataset.png, '${escapeAttr(caption)}')">
                     <img class="main" src="${pngUrl}" alt="set ${i + 1} 3/4 view" onerror="handleMissingPng(this)">
                     <img class="topdown-svg" src="${svgUrl}" alt="top-down">
                   </div>
-                  <div class="meta">seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag}</div>
+                  <div class="meta">seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag} • ${covTag}</div>
                   ${errLine}
                 </div>
               `;
