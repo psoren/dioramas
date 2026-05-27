@@ -49,11 +49,11 @@ export interface WFCGenOptions {
  *  intersection, ≥2 stations, all nodes reachable from one another).
  *  Restarts the pipeline on contradiction or contract failure. */
 export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
-  // 13×13 grid (≈31 world units across at TILE_SIZE 2.4). Smaller than
-  // the plate, but the largest connected component fills a much bigger
-  // FRACTION of the grid here — empirically ~45-60% density vs ~22% at
-  // 21×21. Multi-level variants enabled (level 0 + level 1).
-  const size = opts.size ?? 13;
+  // 21×21 grid covers the full plate. With bridgeComponents handling
+  // disconnects and the much-lower EMPTY weight, plain WFC fills it
+  // densely. (Previous 13×13 was a workaround for the wavefront era's
+  // slow solves and over-aggressive component drops.)
+  const size = opts.size ?? 21;
   const rng = opts.rng ?? Math.random;
   // With EMPTY removed from the variant pool, contradictions are more
   // common (no fallback variant). Bumped retry budget to compensate —
@@ -373,7 +373,7 @@ function portYInLayout(t: PlacedTile, p: 'N' | 'E' | 'S' | 'W'): number {
  *  Returns true if anything changed. */
 function bridgeComponents(layout: TrackLayout): boolean {
   let totalBridges = 0;
-  for (let pass = 0; pass < 50; pass++) {
+  for (let pass = 0; pass < 100; pass++) {
     const components = buildPortComponents(layout);
     if (components.length <= 1) break;
     const compOf = new Map<PlacedTile, number>();
@@ -381,7 +381,9 @@ function bridgeComponents(layout: TrackLayout): boolean {
       for (const t of components[i]!) compOf.set(t, i);
     }
     let bridged = false;
-    outer: for (let i = 0; i < components.length && !bridged; i++) {
+    // --- Distance-1: cells directly adjacent in different components,
+    //     both with null facing ports → upgrade both. ---
+    outer1: for (let i = 0; i < components.length && !bridged; i++) {
       for (const tileA of components[i]!) {
         if ((tileA.level ?? 0) !== 0) continue;
         for (const port of DIRECTIONS) {
@@ -391,22 +393,18 @@ function bridgeComponents(layout: TrackLayout): boolean {
           const nz = tileA.gridZ + dz;
           const tileB = layout.get(nx, nz);
           if (!tileB || (tileB.level ?? 0) !== 0) continue;
-          if (compOf.get(tileB) === i) continue; // already same component
-          // tileB's facing side is `opposite(port)`. To connect we need
-          // a port on both sides; check that B's side is currently null
-          // too (otherwise port-Y would have to match — not handled).
+          if (compOf.get(tileB) === i) continue;
           if (effectivePorts(tileB).includes(opposite(port))) continue;
           const upA = upgradeAddPort(tileA, port);
           const upB = upgradeAddPort(tileB, opposite(port));
           if (!upA || !upB) continue;
-          // Apply both upgrades.
           layout.remove(tileA.gridX, tileA.gridZ);
           layout.place(tileA.gridX, tileA.gridZ, upA.def, upA.rotation);
           layout.remove(tileB.gridX, tileB.gridZ);
           layout.place(tileB.gridX, tileB.gridZ, upB.def, upB.rotation);
           totalBridges++;
           bridged = true;
-          break outer;
+          break outer1;
         }
       }
     }

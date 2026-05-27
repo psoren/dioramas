@@ -188,7 +188,9 @@ function defaultWeight(def: TrackTileDef): number {
     case 'parallel-overpass-ns': return 2.5;
     case 'parallel-overpass-curve-ne': return 2.0;
     case 'parallel-overpass-ramp-ns': return 1.5;
-    case 'empty': return 0.005;
+    // EMPTY's only purpose is the boundary "escape valve" — kept at
+    // near-zero weight so the solver almost never picks it elsewhere.
+    case 'empty': return 0.0001;
     default: return 1;
   }
 }

@@ -50,10 +50,11 @@ try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       page.on('pageerror', (err) => console.error(`  [page error] ${err.message}`));
       try {
-        await page.goto(url.toString(), { waitUntil: 'networkidle' });
-        // WFC build is deferred by 1 RAF + the actual solve. Give it
-        // a generous settle so deck materials + train init finish.
-        await page.waitForTimeout(1800);
+        await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 60000 });
+        // WFC at 21×21 can take 5-15s in-browser. Wait generously for
+        // the solve to finish + scene to settle. networkidle isn't
+        // reliable here because the canvas keeps rAF-ing.
+        await page.waitForTimeout(15000);
         const canvas = await page.$('canvas#scene');
         if (!canvas) throw new Error('canvas#scene not found');
         await canvas.screenshot({ path: outPath });
