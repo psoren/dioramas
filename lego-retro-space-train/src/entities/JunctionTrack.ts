@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
 import type { Direction } from '../world/trackTile';
-import { RAMP_HEIGHT, TILE_SIZE, effectivePorts } from '../world/trackTile';
+import { RAMP_HEIGHT, TILE_SIZE, effectivePorts, sampleWorldPath } from '../world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../world/trackGraph';
 import { TrackLayout } from '../world/trackLayout';
 
@@ -115,7 +115,9 @@ export class JunctionTrack implements Entity {
     }
     const pillarMat = MAT.grayDark;
     for (const tile of this.graph.layout.tiles()) {
-      if (tile.def.kind !== 'elevated-straight-ns') continue;
+      const isElevatedStraight = tile.def.kind === 'elevated-straight-ns';
+      const isElevatedCurve = tile.def.kind === 'elevated-curve-ne';
+      if (!isElevatedStraight && !isElevatedCurve) continue;
       if (!usedCells.has(`${tile.gridX},${tile.gridZ}`)) continue;
       const cx = tile.gridX * TILE_SIZE;
       const cz = tile.gridZ * TILE_SIZE;
@@ -125,12 +127,19 @@ export class JunctionTrack implements Entity {
       const spacing = TILE_SIZE * 0.4;
       const totalHeight = (1 + (tile.level ?? 0)) * RAMP_HEIGHT;
       const pillarGeo = new THREE.BoxGeometry(0.16, totalHeight, 0.16);
-      for (const sign of [-1, 1] as const) {
+      // For elevated curves we place a single centre pillar (the curve
+      // arc doesn't have a clean "along-direction" pair). For straights
+      // we keep the two-pillar pattern so a perpendicular train passes
+      // between them.
+      const offsets: ReadonlyArray<readonly [number, number]> = isElevatedCurve
+        ? [[0, 0]]
+        : [[-1, -1], [1, 1]];
+      for (const [signX, signZ] of offsets) {
         const pillar = new THREE.Mesh(pillarGeo, pillarMat);
         pillar.position.set(
-          cx + sign * alongX * spacing,
+          cx + signX * alongX * spacing,
           totalHeight / 2,
-          cz + sign * alongZ * spacing,
+          cz + signZ * alongZ * spacing,
         );
         pillar.castShadow = true;
         pillar.receiveShadow = true;
@@ -149,6 +158,27 @@ export class JunctionTrack implements Entity {
     //     below), not by glowing track segments. ---
     for (const edge of this.graph.edges) {
       this.drawTrackAlongCurve(g, edge.curve, deckMat, stripeMat);
+    }
+
+    // --- Parallel-overpass upper decks ---
+    // Where primary is ELEVATED and has an under-tile at the SAME
+    // rotation (= a parallel overpass — both layers same direction),
+    // the graph trace stays on the lower layer so the upper deck would
+    // otherwise be invisible. Render it directly from the primary's
+    // samplePath. Under-passes (perpendicular layers) are skipped via
+    // the rotation-equality check.
+    for (const cellTile of this.graph.layout.tiles()) {
+      if (this.graph.layout.get(cellTile.gridX, cellTile.gridZ) !== cellTile) continue;
+      const under = this.graph.layout.getUnder(cellTile.gridX, cellTile.gridZ);
+      if (!under) continue;
+      if (cellTile.rotation !== under.rotation) continue;
+      if (cellTile.def.kind !== 'elevated-straight-ns' && cellTile.def.kind !== 'elevated-curve-ne') continue;
+      const cellPorts = effectivePorts(cellTile);
+      if (cellPorts.length !== 2) continue;
+      const samples = 24;
+      const points = sampleWorldPath(cellTile, cellPorts[0]!, cellPorts[1]!, samples);
+      const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+      this.drawTrackAlongCurve(g, curve, deckMat, stripeMat);
     }
 
     // --- Switch-state chevrons ---

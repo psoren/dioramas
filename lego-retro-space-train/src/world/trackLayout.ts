@@ -54,6 +54,17 @@ export function tileHasPortAtY(tile: PlacedTile, atY: number, tol = 0.01): boole
   return false;
 }
 
+/** Does this tile have a port on side `dir` whose Y is approximately atY? */
+export function tileHasPortAtSideAtY(
+  tile: PlacedTile,
+  dir: Direction,
+  atY: number,
+  tol = 0.01,
+): boolean {
+  if (!effectivePorts(tile).includes(dir)) return false;
+  return Math.abs(portY(tile, dir) - atY) <= tol;
+}
+
 /**
  * A tile's contiguous span along the loop curve, in t-coordinates.
  * `tStart` ≤ t < `tEnd` (with the final span wrapping past 1.0 back to 0).
@@ -160,6 +171,38 @@ export class TrackLayout {
     if (primary && tileHasPortAtY(primary, atY, tol)) return primary;
     const under = this.underCells.get(key(gx, gz));
     if (under && tileHasPortAtY(under, atY, tol)) return under;
+    return undefined;
+  }
+
+  /** Like getAt, but disambiguates between primary and under-tile by
+   *  checking the port AT the entry direction (not just any port on the
+   *  tile). When both layers have a port at the same Y on the entry
+   *  side (the parallel-overpass transition cell — primary RAMP has S
+   *  at Y=0, under STRAIGHT also has S at Y=0), prefer the layer whose
+   *  OPPOSITE side stays at the same Y (the straight-through layer).
+   *  Otherwise behavior matches getAt. */
+  getAtVia(
+    gx: number,
+    gz: number,
+    atY: number,
+    entry: Direction,
+    tol = 0.01,
+  ): PlacedTile | undefined {
+    const opp = ({ N: 'S', E: 'W', S: 'N', W: 'E' } as const)[entry];
+    const primary = this.cells.get(key(gx, gz));
+    const under = this.underCells.get(key(gx, gz));
+    const pHasEntry = !!(primary && tileHasPortAtSideAtY(primary, entry, atY, tol));
+    const uHasEntry = !!(under && tileHasPortAtSideAtY(under, entry, atY, tol));
+    if (pHasEntry && uHasEntry) {
+      const pStraight = tileHasPortAtSideAtY(primary!, opp, atY, tol);
+      const uStraight = tileHasPortAtSideAtY(under!, opp, atY, tol);
+      if (uStraight && !pStraight) return under!;
+      if (pStraight && !uStraight) return primary!;
+      // Both or neither straight-through: fall back to primary-first.
+      return primary!;
+    }
+    if (pHasEntry) return primary!;
+    if (uHasEntry) return under!;
     return undefined;
   }
 

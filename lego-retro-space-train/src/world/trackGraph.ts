@@ -399,7 +399,7 @@ function traceEdgeFromPort(
   for (let safety = 0; safety < 512; safety++) {
     const key = `${cx},${cz}`;
     if (junctionSet.has(key)) return { midCells: mid, toGx: cx, toGz: cz, toEntry: entry };
-    const tile = layout.getAt(cx, cz, currentY);
+    const tile = layout.getAtVia(cx, cz, currentY, entry);
     if (!tile) throw new Error(`traceEdge hit dead end at (${cx},${cz}) y=${currentY}`);
     const ports = effectivePorts(tile);
     if (ports.length !== 2) {
