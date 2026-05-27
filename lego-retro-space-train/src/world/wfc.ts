@@ -103,6 +103,22 @@ export function enumerateVariants(maxLevel = 1): Variant[] {
           // E+S (rot 1), S+W (rot 2), W+N (rot 3).
           const ports2 = effectivePorts(fakeTile);
           for (const p of ports2) portYMap[p] = ys;
+        } else if (def.kind === 'parallel-overpass-ramp-ns') {
+          // Transition: one side multi-Y (matches a parallel overpass),
+          // opposite side single-Y at Y=0 (matches normal ground track).
+          // Base rotation (0): N = [0, H], S = [0] — overpass to the
+          // north, ground to the south. Rotation rotates this pair.
+          const yLow = level * RAMP_HEIGHT;
+          const yHigh = (level + 1) * RAMP_HEIGHT;
+          const overpassSides: Record<number, [Direction, Direction]> = {
+            0: ['N', 'S'], // overpass N, ground S
+            1: ['E', 'W'],
+            2: ['S', 'N'],
+            3: ['W', 'E'],
+          };
+          const [overpassDir, groundDir] = overpassSides[rot]!;
+          portYMap[overpassDir] = [yLow, yHigh];
+          portYMap[groundDir] = [yLow];
         } else {
           for (const p of ports) portYMap[p] = [portY(fakeTile, p)];
         }
@@ -135,10 +151,11 @@ function supportsLevels(def: TrackTileDef): boolean {
     // Under-pass at level k: lower layer at k*H, upper layer at (k+1)*H.
     // Level 0 = ground/level-1 crossing, level 1 = level-1/level-2 crossing.
     def.kind === 'under-pass-nesw' ||
-    // Parallel overpass (straight + curve): same convention as
-    // under-pass — lower at k*H, upper at (k+1)*H, both same direction.
+    // Parallel overpass family — straight, curve, and transition (ramp
+    // into/out of a parallel run). Lower at k*H, upper at (k+1)*H.
     def.kind === 'parallel-overpass-ns' ||
     def.kind === 'parallel-overpass-curve-ne' ||
+    def.kind === 'parallel-overpass-ramp-ns' ||
     // Stations on elevated track — a station at level=1 sits at y=H, etc.
     def.kind === 'station-n'
   );
@@ -161,6 +178,7 @@ function defaultWeight(def: TrackTileDef): number {
     case 'under-pass-nesw': return 0.3;
     case 'parallel-overpass-ns': return 0.3;
     case 'parallel-overpass-curve-ne': return 0.3;
+    case 'parallel-overpass-ramp-ns': return 0.3;
     case 'empty': return 0.005;
     default: return 1;
   }

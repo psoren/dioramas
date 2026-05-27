@@ -13,7 +13,7 @@ import { UNDER_PASS_NESW } from './trackTile';
 import { buildGraphFromLayout, NodeKind, TrackGraph, GraphNode } from './trackGraph';
 import {
   dirVector, effectivePorts, opposite, PlacedTile, STRAIGHT_NS,
-  ELEVATED_STRAIGHT_NS, CURVE_NE, ELEVATED_CURVE_NE,
+  ELEVATED_STRAIGHT_NS, CURVE_NE, ELEVATED_CURVE_NE, RAMP_NS,
 } from './trackTile';
 import {
   AdjacencyTable,
@@ -147,6 +147,15 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
           // lower CURVE_NE — same rotation.
           layout.place(gx, gz, ELEVATED_CURVE_NE, v.rotation, undefined, v.level);
           layout.placeUnder(gx, gz, CURVE_NE, v.rotation, undefined, v.level);
+          continue;
+        }
+        if (v.def.kind === 'parallel-overpass-ramp-ns') {
+          // Transition cell: primary is a RAMP at the variant's rotation
+          // (ramps from Y=0 on the ground-side port to Y=H on the
+          // overpass-side port). Under is a STRAIGHT_NS at the same
+          // rotation (continuous ground track running under the ramp).
+          layout.place(gx, gz, RAMP_NS, v.rotation, undefined, v.level);
+          layout.placeUnder(gx, gz, STRAIGHT_NS, v.rotation, undefined, v.level);
           continue;
         }
         layout.place(gx, gz, v.def, v.rotation, undefined, v.level);

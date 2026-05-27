@@ -254,6 +254,23 @@ export const PARALLEL_OVERPASS_CURVE_NE: TrackTileDef = {
   },
 };
 
+// --- Parallel overpass transition (ramp into/out of a parallel run) ---
+// A bridge piece between a parallel overpass (multi-Y) and a normal
+// ground tile (single-Y at Y=0). Geometry: a RAMP_NS in the upper slot
+// stacked on a STRAIGHT_NS in the lower slot. The N side has both
+// layers (Y=0 ground continuing under + Y=H ramp top → matches a
+// parallel overpass to the north); the S side has only Y=0 (the ramp's
+// bottom + the ground STRAIGHT converge into one ground-level port).
+// All 4 rotations enumerate cleanly because the multi-Y/single-Y sides
+// asymmetrically rotate around the cell.
+export const PARALLEL_OVERPASS_RAMP_NS: TrackTileDef = {
+  kind: 'parallel-overpass-ramp-ns',
+  basePorts: ['N', 'S'],
+  samplePath() {
+    throw new Error('PARALLEL_OVERPASS_RAMP is a WFC-virtual tile; decompose before placement');
+  },
+};
+
 // --- Station: 1 port, dead-end. Buffer stop on the far side. ----------
 // Lets WFC place stations naturally inside the grid (a STATION_N tile
 // has a port on its N side and no ports on E/S/W, so WFC's adjacency
@@ -379,6 +396,7 @@ export const ALL_TILES: readonly TrackTileDef[] = [
   STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW, RAMP_NS, RAMP_NS_TALL,
   ELEVATED_STRAIGHT_NS, ELEVATED_CURVE_NE, STATION_N, UNDER_PASS_NESW,
   PARALLEL_OVERPASS_NS, PARALLEL_OVERPASS_CURVE_NE,
+  PARALLEL_OVERPASS_RAMP_NS,
 ];
 
 // --- Placed tile + helpers ----------------------------------------------
