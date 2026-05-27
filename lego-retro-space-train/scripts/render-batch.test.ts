@@ -7,7 +7,7 @@
 // server.
 
 import { describe, it } from 'vitest';
-import { generateWFCGraph, extractGraphFromLayout, extendWFCLayout } from '../src/world/wfcGenerator';
+import { generateWFCGraph, extractGraphFromLayout } from '../src/world/wfcGenerator';
 import { TrackLayout } from '../src/world/trackLayout';
 import { PlacedTile, effectivePorts, sampleWorldPath, TILE_SIZE } from '../src/world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../src/world/trackGraph';
@@ -49,34 +49,14 @@ describe('render WFC batch', () => {
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
       };
       try {
+        // WFC with wavefront observe + branch bias (set in wfc.ts).
+        // Connectivity comes from: pre-seeded STATION_N at origin +
+        // observer only collapses cells ADJACENT to already-collapsed
+        // cells + keepOnlyLargestComponent post-filter.
         const result = generateWFCGraph({ size, rng, maxRetries: 200 });
-        // FIRST ROLL: baseline layout.
-        const layoutA = result.graph.layout;
-        // SECOND ROLL: additive — pin the first roll's tiles (soft, so
-        // STRAIGHTs can upgrade to TEEs), crush EMPTY weight, let WFC
-        // fill more cells around the existing layout.
-        let layout = layoutA;
-        let added = 0;
-        let firstRollCells = 0;
-        let extendErr: string | undefined;
-        try {
-          const layoutB = extendWFCLayout(layoutA, { size, rng, maxRetries: 30 });
-          const aKeys = new Set<string>();
-          for (const t of layoutA.tiles()) aKeys.add(`${t.gridX},${t.gridZ}`);
-          firstRollCells = aKeys.size;
-          const bKeys = new Set<string>();
-          for (const t of layoutB.tiles()) bKeys.add(`${t.gridX},${t.gridZ}`);
-          for (const k of bKeys) if (!aKeys.has(k)) added++;
-          const extended = extractGraphFromLayout(layoutB, rng);
-          layout = layoutB;
-          result.graph = extended.graph;
-          result.stations = extended.stations;
-          result.junctions = extended.junctions;
-        } catch (e) {
-          extendErr = (e as Error).message.slice(0, 100);
-          // second roll failed; keep baseline
-        }
-        if (extendErr) console.log(`  seed ${seed}: extend failed: ${extendErr}`);
+        const layout = result.graph.layout;
+        const firstRollCells = layout.tiles().length;
+        const added = 0;
         // Count parallel-overpass cells (primary ELEVATED + under at SAME
         // rotation — distinguishes from perpendicular under-pass).
         let parallel = 0;
@@ -87,9 +67,9 @@ describe('render WFC batch', () => {
           const isPrimaryElevated = t.def.kind === 'elevated-straight-ns' || t.def.kind === 'elevated-curve-ne';
           if (isPrimaryElevated && t.rotation === under.rotation) parallel++;
         }
-        // Cells from roll 1 (so renderer can colour-code roll 1 vs roll 2).
+        // Grower has no separate "roll 2" — every cell came from one
+        // pass. Pass an empty set so the renderer doesn't tint anything.
         const firstRollKeys = new Set<string>();
-        for (const t of layoutA.tiles()) firstRollKeys.add(`${t.gridX},${t.gridZ}`);
         // Coverage: walk the Eulerian tour (Hierholzer + greedy odd-
         // pair duplication). Visits every graph edge at least once,
         // so coverage approaches 100%. This is what the train will

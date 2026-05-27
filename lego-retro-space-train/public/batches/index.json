@@ -1,5 +1,209 @@
 [
   {
+    "batchId": "2026-05-27T19-32-09-2b8dff9",
+    "commit": "2b8dff9",
+    "timestamp": "2026-05-27T19:33:35.479Z",
+    "size": 13,
+    "stats": {
+      "solves": 7,
+      "total": 10,
+      "layoutsWithParallel": 7,
+      "parallelTotal": 142,
+      "elevatedOK": 4,
+      "coverageMean": 0.515
+    },
+    "sets": [
+      {
+        "seed": 109768,
+        "ok": true,
+        "tiles": 127,
+        "parallel": 26,
+        "elevatedOK": true,
+        "elevatedThrough": 2,
+        "coverage": 0.629,
+        "cellsTotal": 89,
+        "cellsGround": 56,
+        "cellsElevated": 56,
+        "cellsUncovered": 33,
+        "firstRollCells": 127,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 102859,
+        "ok": true,
+        "tiles": 126,
+        "parallel": 20,
+        "elevatedOK": true,
+        "elevatedThrough": 2,
+        "coverage": 0.543,
+        "cellsTotal": 94,
+        "cellsGround": 51,
+        "cellsElevated": 51,
+        "cellsUncovered": 43,
+        "firstRollCells": 126,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 104893,
+        "ok": true,
+        "tiles": 92,
+        "parallel": 13,
+        "elevatedOK": true,
+        "elevatedThrough": 2,
+        "coverage": 0.2,
+        "cellsTotal": 75,
+        "cellsGround": 15,
+        "cellsElevated": 15,
+        "cellsUncovered": 60,
+        "firstRollCells": 92,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 104632,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":139,\"build-graph-threw:traceEdge hit dead end at (-5,4) y=0\":3,\"build-graph-threw:t"
+      },
+      {
+        "seed": 107280,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":151,\"no-junctions\":8,\"build-graph-threw:traceEdge hit dead end at (-5,-2) y=0\":2,\"b"
+      },
+      {
+        "seed": 110814,
+        "ok": true,
+        "tiles": 144,
+        "parallel": 19,
+        "elevatedOK": true,
+        "elevatedThrough": 2,
+        "coverage": 0.532,
+        "cellsTotal": 111,
+        "cellsGround": 59,
+        "cellsElevated": 59,
+        "cellsUncovered": 52,
+        "firstRollCells": 144,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 108677,
+        "ok": true,
+        "tiles": 93,
+        "parallel": 17,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.403,
+        "cellsTotal": 72,
+        "cellsGround": 29,
+        "cellsElevated": 0,
+        "cellsUncovered": 43,
+        "firstRollCells": 93,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 113117,
+        "ok": true,
+        "tiles": 113,
+        "parallel": 24,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.689,
+        "cellsTotal": 74,
+        "cellsGround": 51,
+        "cellsElevated": 0,
+        "cellsUncovered": 23,
+        "firstRollCells": 113,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 111701,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":151,\"build-graph-threw:traceEdge hit dead end at (-5,-6) y=0\":7,\"build-graph-threw:"
+      },
+      {
+        "seed": 114903,
+        "ok": true,
+        "tiles": 102,
+        "parallel": 23,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.606,
+        "cellsTotal": 71,
+        "cellsGround": 43,
+        "cellsElevated": 0,
+        "cellsUncovered": 28,
+        "firstRollCells": 102,
+        "addedByRoll2": 0
+      }
+    ],
+    "notes": "Iter 18: WFC with wavefront observe + branch-bias. Changes: (1) pickFrontierCell wired in solveWFC's observe step — only collapses cells adjacent to already-collapsed ones, so the network grows from the seed. (2) STATION_N pre-seeded at grid centre as the wavefront anchor. (3) Weights flipped: tee=8, curve=3, straight=1, cross=2 — favours branching. (4) keepOnlyLargestComponent still runs as cleanup."
+  },
+  {
+    "batchId": "2026-05-27T19-29-05-2b8dff9",
+    "commit": "2b8dff9",
+    "timestamp": "2026-05-27T19:29:05.834Z",
+    "size": 13,
+    "stats": {
+      "solves": 0,
+      "total": 10,
+      "layoutsWithParallel": 0,
+      "parallelTotal": 0,
+      "elevatedOK": 0,
+      "coverageMean": 0
+    },
+    "sets": [
+      {
+        "seed": 105789,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 106535,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 107272,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 108007,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 108739,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 109473,
+        "ok": false,
+        "error": "traceEdge hit dead end at (6,2) y=1.4"
+      },
+      {
+        "seed": 110207,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 110941,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 111675,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      },
+      {
+        "seed": 112409,
+        "ok": false,
+        "error": "Cannot read properties of undefined (reading 'x')"
+      }
+    ],
+    "notes": "Iter 17 — NEW APPROACH: constructive grower replaces WFC + extend. Algorithm: place STATION_N at origin, push its port to frontier, pop random port, try TEE/CURVE/STRAIGHT/RAMP that matches entry+Y, fall back through the chain. Loop-close via STRAIGHT/CURVE → TEE → CROSS upgrade. Stop when frontier empty. Connectivity guaranteed by construction."
+  },
+  {
     "batchId": "2026-05-27T18-15-06-7fe20f6",
     "commit": "7fe20f6",
     "timestamp": "2026-05-27T18:15:11.531Z",

@@ -168,10 +168,14 @@ function supportsLevels(def: TrackTileDef): boolean {
  *  moderately common so the grid can leave whitespace. */
 function defaultWeight(def: TrackTileDef): number {
   switch (def.kind) {
-    case 'straight-ns': return 6;
-    case 'curve-ne': return 5;
-    case 'tee-nes': return 0.4;
-    case 'cross-nesw': return 0.15;
+    // Wavefront observe + branch bias: prefer tiles that ADD ports
+    // (TEE > CURVE > STRAIGHT). Each TEE creates an extra open port
+    // for the wavefront to grow into, so the network branches out
+    // instead of running a single snake through the grid.
+    case 'straight-ns': return 1;
+    case 'curve-ne': return 3;
+    case 'tee-nes': return 8;
+    case 'cross-nesw': return 2;
     case 'ramp-ns': return 0.2;
     case 'ramp-ns-tall': return 0.2;
     case 'elevated-straight-ns': return 0.4;
@@ -357,7 +361,13 @@ function solveOnce(
 
   // Observe loop: collapse one cell at a time, propagate.
   for (;;) {
-    const next = pickLowestEntropyCell(cellOptions, rng);
+    // Wavefront observe: prefer cells adjacent to already-collapsed
+    // ones so the solve grows out from the pre-seed (a STATION_N at
+    // origin). When the wavefront is exhausted but cells remain
+    // un-collapsed, falls back to global lowest-entropy. Result is
+    // then run through keepOnlyLargestComponent in the generator so
+    // only the wave-grown blob survives.
+    const next = pickFrontierCell(cellOptions, width, height, rng);
     if (!next) break; // all collapsed
     const opts2 = cellOptions.get(next)!;
     const choice = weightedPick([...opts2], table, rng, opts.weightOverride);
@@ -437,11 +447,10 @@ function pickLowestEntropyCell(
 
 /** Frontier-biased observe: pick the lowest-entropy cell among those
  *  ADJACENT to an already-collapsed cell. The "wavefront" WFC variant —
- *  solution grows outward from existing collapses. NOT WIRED IN by
- *  default: on large grids it's O(n²) per observe step which makes
- *  21×21 solves unacceptably slow. Kept here so it can be swapped in
- *  for small grids or post-pre-seed wavefronts later. */
-// @ts-expect-error unused but kept intentionally
+ *  the solution grows outward from a pre-seeded anchor. Combined with a
+ *  STATION_N pre-seed at the grid centre and keepOnlyLargestComponent
+ *  post-filter, this gives connectivity-by-construction: every cell in
+ *  the final layout is reachable from the seed. */
 function pickFrontierCell(
   cellOptions: Map<string, Set<string>>,
   width: number,

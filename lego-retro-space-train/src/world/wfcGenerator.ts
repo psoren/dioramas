@@ -62,11 +62,18 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
   const variants = enumerateVariants(1);
   const table = buildAdjacencyTable(variants);
   const variantById = table.byId;
-  // Pre-seed was forcing a level-1 elevated at the centre — useful when
-  // the criteria required a height-2 bridge, but with EMPTY removed and
-  // criteria relaxed it just over-constrains the solver and tanks the
-  // success rate. Leave the helper in place but skip it.
+  // Pre-seed: a single STATION_N at grid centre. This is the anchor
+  // for the wavefront observer (pickFrontierCell in wfc.ts) — every
+  // subsequent collapse is at a cell adjacent to an already-collapsed
+  // one, so the network grows out from this seed and connectivity is
+  // implicit. keepOnlyLargestComponent then prunes any stragglers from
+  // the wavefront's fallback to global-lowest-entropy if a contradiction
+  // forces it during propagation.
   const preSeed = new Map<string, string>();
+  const cx = Math.floor(size / 2);
+  const cy = Math.floor(size / 2);
+  const stationId = findVariantId('station-n', 0, 0, table);
+  if (stationId) preSeed.set(`${cx},${cy}`, stationId);
   void buildMultiLevelPreSeed;
   // Merge the cumulative layout's tiles into the pre-seed so the new
   // solve fits AROUND what's already on the plate. Convert each tile to
