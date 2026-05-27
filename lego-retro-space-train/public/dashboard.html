@@ -70,13 +70,15 @@
       border-radius: 4px;
       overflow: hidden;
       background: #000;
+      aspect-ratio: 8 / 5;
     }
     .set .render-stack img.main {
       width: 100%;
-      height: auto;
+      height: 100%;
       display: block;
+      object-fit: cover;
     }
-    .set .render-stack .topdown {
+    .set .render-stack img.topdown-svg {
       position: absolute;
       bottom: 4px;
       right: 4px;
@@ -86,18 +88,24 @@
       background: #1a1a22;
       border-radius: 3px;
       box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-    }
-    .set .render-stack .topdown img {
-      width: 100%;
       display: block;
     }
-    .set .render-stack.missing {
+    /* Fallback when 3D PNG is missing: SVG is the only render, shown
+       full-frame instead of as a thumbnail. */
+    .set .render-stack.svg-only {
       cursor: default;
-      padding: 24px 12px;
-      text-align: center;
-      color: #666;
-      font-size: 11px;
-      font-family: ui-monospace, monospace;
+      background: #1a1a22;
+      aspect-ratio: 1 / 1;
+    }
+    .set .render-stack.svg-only img {
+      position: static;
+      width: 100%;
+      max-width: none;
+      height: 100%;
+      object-fit: contain;
+      border: none;
+      box-shadow: none;
+      background: transparent;
     }
     .set .meta {
       font-family: ui-monospace, monospace;
@@ -184,12 +192,14 @@
               const pngUrl = `/batches/${batch.batchId}/set-${i + 1}.png`;
               const svgUrl = `/batches/${batch.batchId}/set-${i + 1}.svg`;
               const caption = `${batch.commit} • set ${i + 1} • seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag}`;
+              // Each set's render-stack is referenced by data-png so the
+              // missing-image handler (handleMissingPng, defined below)
+              // can mutate it ONCE without re-triggering itself.
               return `
                 <div class="set">
-                  <div class="render-stack" onclick="openLightbox('${pngUrl}', '${escapeAttr(caption)}')">
-                    <img class="main" src="${pngUrl}" alt="set ${i + 1} 3/4 view"
-                      onerror="this.parentElement.classList.add('missing');this.style.display='none';this.parentElement.innerHTML+='<span>no 3D render yet — run scripts/screenshot-batch.mjs</span>';this.parentElement.removeAttribute('onclick');this.parentElement.style.cursor='default';">
-                    <div class="topdown"><img src="${svgUrl}" alt="top-down"></div>
+                  <div class="render-stack" data-png="${pngUrl}" onclick="openLightbox(this.dataset.png, '${escapeAttr(caption)}')">
+                    <img class="main" src="${pngUrl}" alt="set ${i + 1} 3/4 view" onerror="handleMissingPng(this)">
+                    <img class="topdown-svg" src="${svgUrl}" alt="top-down">
                   </div>
                   <div class="meta">seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag}</div>
                   ${errLine}
@@ -203,6 +213,22 @@
     }
     function escapeHtml(s) {
       return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+    function handleMissingPng(img) {
+      // Detach the error handler FIRST so any reflow doesn't re-fire it.
+      img.onerror = null;
+      const stack = img.parentElement;
+      if (!stack || stack.dataset.fallback === '1') return;
+      stack.dataset.fallback = '1';
+      // Promote the top-down SVG to the main render slot and drop the
+      // missing PNG image. No clickable lightbox for older batches that
+      // don't have a 3D screenshot.
+      const svg = stack.querySelector('.topdown-svg');
+      stack.classList.add('svg-only');
+      stack.onclick = null;
+      stack.style.cursor = 'default';
+      img.remove();
+      if (svg) svg.classList.remove('topdown-svg');
     }
     function escapeAttr(s) {
       return escapeHtml(s).replace(/'/g, '&#39;');
