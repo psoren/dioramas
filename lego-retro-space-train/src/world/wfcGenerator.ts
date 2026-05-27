@@ -602,13 +602,39 @@ export function extendWFCLayout(
     if (wfcX < 0 || wfcX >= size || wfcY < 0 || wfcY >= size) continue;
     const cellKey = `${wfcX},${wfcY}`;
     const under = existing.getUnder(t.gridX, t.gridZ);
-    // Under-passes: hard-pin to the under-pass variant (no useful upgrade).
-    if (under && t.def.kind === 'elevated-straight-ns' && under.def.kind === 'straight-ns') {
-      const upperHorizontal = t.rotation === 1 || t.rotation === 3;
-      const upRot = upperHorizontal ? 0 : 1;
-      const vid = findVariantId('under-pass-nesw', upRot, t.level ?? 0, table);
-      if (vid) hardPreSeed.set(cellKey, vid);
-      continue;
+    // Stacked cells (primary + under). Choose the right virtual tile
+    // based on rotation match:
+    //   - rotations differ → UNDER_PASS_NESW (perpendicular layers).
+    //   - rotations match  → PARALLEL_OVERPASS_NS or _CURVE_NE (same axis).
+    // Transition: primary RAMP_NS + under STRAIGHT_NS, any rotation →
+    //   PARALLEL_OVERPASS_RAMP_NS at that rotation.
+    if (under) {
+      const sameRot = under.rotation === t.rotation;
+      if (t.def.kind === 'elevated-straight-ns' && under.def.kind === 'straight-ns') {
+        if (sameRot) {
+          // Parallel overpass straight. Variant rotation 0/2 → both N-S,
+          // matches when primary rotation is 0. rotation 1/3 → both E-W.
+          const vid = findVariantId('parallel-overpass-ns', t.rotation, t.level ?? 0, table);
+          if (vid) hardPreSeed.set(cellKey, vid);
+        } else {
+          // Under-pass: upper E-W (rotation 1 or 3) → variant rot 0; upper N-S → variant rot 1.
+          const upperHorizontal = t.rotation === 1 || t.rotation === 3;
+          const upRot = upperHorizontal ? 0 : 1;
+          const vid = findVariantId('under-pass-nesw', upRot, t.level ?? 0, table);
+          if (vid) hardPreSeed.set(cellKey, vid);
+        }
+        continue;
+      }
+      if (t.def.kind === 'elevated-curve-ne' && under.def.kind === 'curve-ne' && sameRot) {
+        const vid = findVariantId('parallel-overpass-curve-ne', t.rotation, t.level ?? 0, table);
+        if (vid) hardPreSeed.set(cellKey, vid);
+        continue;
+      }
+      if (t.def.kind === 'ramp-ns' && under.def.kind === 'straight-ns' && sameRot) {
+        const vid = findVariantId('parallel-overpass-ramp-ns', t.rotation, t.level ?? 0, table);
+        if (vid) hardPreSeed.set(cellKey, vid);
+        continue;
+      }
     }
     // Upgradeable ground tiles: soft-pin to the set of covering variants.
     if (upgradeKinds.has(t.def.kind) && (t.level ?? 0) === 0) {
@@ -653,6 +679,23 @@ export function extendWFCLayout(
           const lowerRot = upperHorizontal ? 0 : 1;
           layout.place(gx, gz, ELEVATED_STRAIGHT_NS, upperRot, undefined, v.level);
           layout.placeUnder(gx, gz, STRAIGHT_NS, lowerRot, undefined, v.level);
+          continue;
+        }
+        if (v.def.kind === 'parallel-overpass-ns') {
+          const vertical = v.rotation === 0 || v.rotation === 2;
+          const rot = vertical ? 0 : 1;
+          layout.place(gx, gz, ELEVATED_STRAIGHT_NS, rot, undefined, v.level);
+          layout.placeUnder(gx, gz, STRAIGHT_NS, rot, undefined, v.level);
+          continue;
+        }
+        if (v.def.kind === 'parallel-overpass-curve-ne') {
+          layout.place(gx, gz, ELEVATED_CURVE_NE, v.rotation, undefined, v.level);
+          layout.placeUnder(gx, gz, CURVE_NE, v.rotation, undefined, v.level);
+          continue;
+        }
+        if (v.def.kind === 'parallel-overpass-ramp-ns') {
+          layout.place(gx, gz, RAMP_NS, v.rotation, undefined, v.level);
+          layout.placeUnder(gx, gz, STRAIGHT_NS, v.rotation, undefined, v.level);
           continue;
         }
         layout.place(gx, gz, v.def, v.rotation, undefined, v.level);

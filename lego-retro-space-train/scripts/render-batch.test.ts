@@ -7,7 +7,7 @@
 // server.
 
 import { describe, it } from 'vitest';
-import { generateWFCGraph, extractGraphFromLayout } from '../src/world/wfcGenerator';
+import { generateWFCGraph, extractGraphFromLayout, extendWFCLayout } from '../src/world/wfcGenerator';
 import { TrackLayout } from '../src/world/trackLayout';
 import { PlacedTile, effectivePorts, sampleWorldPath, TILE_SIZE } from '../src/world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../src/world/trackGraph';
@@ -50,7 +50,33 @@ describe('render WFC batch', () => {
       };
       try {
         const result = generateWFCGraph({ size, rng, maxRetries: 200 });
-        const layout = result.graph.layout;
+        // FIRST ROLL: baseline layout.
+        const layoutA = result.graph.layout;
+        // SECOND ROLL: additive — pin the first roll's tiles (soft, so
+        // STRAIGHTs can upgrade to TEEs), crush EMPTY weight, let WFC
+        // fill more cells around the existing layout.
+        let layout = layoutA;
+        let added = 0;
+        let firstRollCells = 0;
+        let extendErr: string | undefined;
+        try {
+          const layoutB = extendWFCLayout(layoutA, { size, rng, maxRetries: 30 });
+          const aKeys = new Set<string>();
+          for (const t of layoutA.tiles()) aKeys.add(`${t.gridX},${t.gridZ}`);
+          firstRollCells = aKeys.size;
+          const bKeys = new Set<string>();
+          for (const t of layoutB.tiles()) bKeys.add(`${t.gridX},${t.gridZ}`);
+          for (const k of bKeys) if (!aKeys.has(k)) added++;
+          const extended = extractGraphFromLayout(layoutB, rng);
+          layout = layoutB;
+          result.graph = extended.graph;
+          result.stations = extended.stations;
+          result.junctions = extended.junctions;
+        } catch (e) {
+          extendErr = (e as Error).message.slice(0, 100);
+          // second roll failed; keep baseline
+        }
+        if (extendErr) console.log(`  seed ${seed}: extend failed: ${extendErr}`);
         // Count parallel-overpass cells (primary ELEVATED + under at SAME
         // rotation — distinguishes from perpendicular under-pass).
         let parallel = 0;
@@ -61,6 +87,9 @@ describe('render WFC batch', () => {
           const isPrimaryElevated = t.def.kind === 'elevated-straight-ns' || t.def.kind === 'elevated-curve-ne';
           if (isPrimaryElevated && t.rotation === under.rotation) parallel++;
         }
+        // Cells from roll 1 (so renderer can colour-code roll 1 vs roll 2).
+        const firstRollKeys = new Set<string>();
+        for (const t of layoutA.tiles()) firstRollKeys.add(`${t.gridX},${t.gridZ}`);
         // Coverage: walk the Eulerian tour (Hierholzer + greedy odd-
         // pair duplication). Visits every graph edge at least once,
         // so coverage approaches 100%. This is what the train will
@@ -87,7 +116,7 @@ describe('render WFC batch', () => {
         for (const t of layout.tiles()) allLayoutCells.add(`${t.gridX},${t.gridZ}`);
         const union = new Set<string>([...groundCovered, ...elevatedCovered]);
         const coverage = allLayoutCells.size > 0 ? union.size / allLayoutCells.size : 0;
-        const svg = renderLayoutSvg(layout, size, parallel, elevatedOK, groundCovered, elevatedCovered);
+        const svg = renderLayoutSvg(layout, size, parallel, elevatedOK, groundCovered, elevatedCovered, firstRollKeys);
         fs.writeFileSync(path.join(outDir, `set-${i + 1}.svg`), svg);
         sets.push({
           seed, ok: true, tiles: layout.tiles().length, parallel, elevatedOK, elevatedThrough, elevatedErr,
@@ -96,6 +125,8 @@ describe('render WFC batch', () => {
           cellsGround: groundCovered.size,
           cellsElevated: elevatedCovered.size,
           cellsUncovered: allLayoutCells.size - union.size,
+          firstRollCells,
+          addedByRoll2: added,
         });
       } catch (e) {
         sets.push({ seed, ok: false, error: (e as Error).message.slice(0, 200) });
@@ -167,6 +198,8 @@ interface BatchEntry {
     cellsGround?: number;
     cellsElevated?: number;
     cellsUncovered?: number;
+    firstRollCells?: number;
+    addedByRoll2?: number;
     error?: string;
   }>;
   notes: string;
@@ -204,6 +237,7 @@ function renderLayoutSvg(
   elevatedOK: boolean,
   groundCovered: Set<string> = new Set(),
   elevatedCovered: Set<string> = new Set(),
+  firstRollKeys: Set<string> = new Set(),
 ): string {
   const half = Math.floor(size / 2);
   const cellPx = 22;
@@ -244,7 +278,11 @@ function renderLayoutSvg(
     if (gx < 0 || gx >= size || gz < 0 || gz >= size) continue;
     const cx = (gx + 0.5) * cellPx;
     const cy = (gz + 0.5) * cellPx;
-    const stroke = tileColor(tile, isPrimary);
+    const cellKey = `${tile.gridX},${tile.gridZ}`;
+    // Cells added by the second roll get a distinct yellow-orange tone
+    // so you can see what "fit around the first one" produced.
+    const addedByRoll2 = firstRollKeys.size > 0 && !firstRollKeys.has(cellKey);
+    const stroke = addedByRoll2 ? '#f1a738' : tileColor(tile, isPrimary);
     const strokeW = isPrimary ? 2.6 : 1.8;
     const ports = effectivePorts(tile);
     if (ports.length === 1) {
