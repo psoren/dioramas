@@ -40,7 +40,8 @@ import { ApartmentBuilding } from './entities/ApartmentBuilding';
 import { JunctionTrack } from './entities/JunctionTrack';
 import { GraphTrain } from './entities/GraphTrain';
 import { generateRandomGraphTrack } from './world/trackGraphGenerators';
-import { generateWFCGraph } from './world/wfcGenerator';
+import { generateWFCGraph, extractGraphFromLayout, extendWFCLayout } from './world/wfcGenerator';
+import { TrackLayout } from './world/trackLayout';
 import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
 
 window.addEventListener('error', (event) => {
@@ -133,6 +134,11 @@ const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTe
 const randomEntities: Entity[] = [];
 // Module-level handle to the active train so the POV button can target it.
 let currentTrain: GraphTrain | null = null;
+// Cumulative WFC layout — each WFC roll's tiles are merged into this
+// (new tile wins on cell conflicts). The visible track is rebuilt from
+// this union on every click, so each roll APPENDS to the network rather
+// than replacing it. Cleared by the "🎲 Random Track" button.
+const cumulativeLayout = new TrackLayout();
 // Optional pin: ?seed=N in the URL forces every "random" roll to use the
 // same seed, so a layout can be reproduced for debugging. The HUD click
 // of "Random Track" still re-rolls a NEW random seed (unless ?seed is
@@ -150,7 +156,11 @@ function placeTrackOnGraph(
     `placeTrackOnGraph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ` +
     `${stations.length} stations (${stations.filter((s) => s.edges.length >= 2).length} through)`,
   );
-  const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0] }));
+  // Random saturated hue per roll so consecutive layouts look obviously
+  // different — useful for confirming a click actually rebuilt the track.
+  const deckColor = new THREE.Color().setHSL(Math.random(), 0.55, 0.55).getHex();
+  console.log(`track deck color: #${deckColor.toString(16).padStart(6, '0')}`);
+  const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0], deckColor }));
   randomEntities.push(track);
   const targets = stations.filter((s) => s.edges.length >= 2);
   if (targets.length >= 2) {
@@ -173,6 +183,7 @@ function placeTrackOnGraph(
 function randomizeTrack(): void {
   for (const e of randomEntities) sim.remove(e);
   randomEntities.length = 0;
+  cumulativeLayout.clear(); // 🎲 Random Track is a full reset.
   const seed = URL_SEED ?? Math.floor(Math.random() * 1_000_000);
   console.log(`track seed: ${seed} (pin with ?seed=${seed})`);
   const mulberry = mulberry32(seed);
@@ -190,23 +201,73 @@ function wfcTrack(): void {
   const seed = Math.floor(Math.random() * 1_000_000);
   console.log(`wfc seed: ${seed}`);
   const mulberry = mulberry32(seed);
-  let result: ReturnType<typeof generateWFCGraph> | null = null;
-  for (const size of [11, 9, 7]) {
-    try {
-      result = generateWFCGraph({ size, rng: mulberry });
-      console.log(`wfc ${size}x${size} done after ${result.retries} retries`);
-      break;
-    } catch (err) {
-      console.warn(`wfc ${size}x${size} failed:`, err);
+  const firstRoll = cumulativeLayout.tiles().length === 0;
+  let rolledLayout: ReturnType<typeof generateWFCGraph>['graph']['layout'] | null = null;
+  if (firstRoll) {
+    // First roll: use the strict generator (criteria-checked).
+    let result: ReturnType<typeof generateWFCGraph> | null = null;
+    for (const size of [21, 17, 13]) {
+      try {
+        result = generateWFCGraph({ size, rng: mulberry });
+        console.log(`wfc ${size}x${size} (first roll) done after ${result.retries} retries`);
+        break;
+      } catch (err) {
+        console.warn(`wfc ${size}x${size} failed:`, err);
+      }
+    }
+    if (!result) {
+      console.error('wfc: all sizes failed; keeping previous layout');
+      return;
+    }
+    rolledLayout = result.graph.layout;
+  } else {
+    // Subsequent rolls: additive — pin cumulative cells, crush EMPTY
+    // weight, no criteria check, keep disconnected components. The new
+    // solve produces a layout that includes the cumulative tiles + new
+    // ones placed in adjacency-compatible empty cells (often forming
+    // additional disconnected loops).
+    for (const size of [21, 17, 13]) {
+      try {
+        rolledLayout = extendWFCLayout(cumulativeLayout, { size, rng: mulberry });
+        console.log(`wfc ${size}x${size} (additive) succeeded`);
+        break;
+      } catch (err) {
+        console.warn(`wfc ${size}x${size} additive failed:`, err);
+      }
+    }
+    if (!rolledLayout) {
+      console.error('wfc additive: all sizes failed; keeping previous layout');
+      return;
     }
   }
-  if (!result) {
-    console.error('wfc: all sizes failed; keeping previous layout');
+  // Adopt the rolled layout as the new cumulative — it already includes
+  // the prior cells (since they were pinned) plus whatever new ones the
+  // solver added.
+  cumulativeLayout.clear();
+  for (const t of rolledLayout.tiles()) {
+    const isPrimary = rolledLayout.get(t.gridX, t.gridZ) === t;
+    if (isPrimary) {
+      cumulativeLayout.place(t.gridX, t.gridZ, t.def, t.rotation, t.routing, t.level);
+    } else {
+      cumulativeLayout.placeUnder(t.gridX, t.gridZ, t.def, t.rotation, t.routing, t.level);
+    }
+  }
+  // Build a single combined graph from the cumulative layout.
+  let combined: ReturnType<typeof extractGraphFromLayout>;
+  try {
+    combined = extractGraphFromLayout(cumulativeLayout, mulberry);
+  } catch (err) {
+    console.error('merged graph build failed; keeping previous layout', err);
     return;
   }
+  console.log(
+    `cumulative layout: ${cumulativeLayout.tiles().length} tiles, ` +
+    `${combined.graph.nodes.length} graph nodes, ${combined.graph.edges.length} edges`,
+  );
+  // Tear down old visible track + train, then place the combined one.
   for (const e of randomEntities) sim.remove(e);
   randomEntities.length = 0;
-  placeTrackOnGraph(result.graph, result.stations);
+  placeTrackOnGraph(combined.graph, combined.stations);
 }
 
 function updateSwitches(

@@ -140,6 +140,13 @@ export class TrackLayout {
     this.underCells.delete(key(gx, gz));
   }
 
+  /** Drop every tile (primary + under). Used by the WFC densify pass
+   *  before re-populating the layout from a second WFC solve. */
+  clear(): void {
+    this.cells.clear();
+    this.underCells.clear();
+  }
+
   getUnder(gx: number, gz: number): PlacedTile | undefined {
     return this.underCells.get(key(gx, gz));
   }

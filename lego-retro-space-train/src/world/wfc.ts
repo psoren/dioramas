@@ -124,7 +124,7 @@ function defaultWeight(def: TrackTileDef): number {
     case 'elevated-curve-ne': return 0.25;
     case 'station-n': return 0.4;
     case 'under-pass-nesw': return 0.3;
-    case 'empty': return 0.8;
+    case 'empty': return 0.05;
     default: return 1;
   }
 }
@@ -185,6 +185,15 @@ export interface WFCOptions {
   rng?: () => number;
   /** Max restarts on contradiction before giving up. */
   maxRetries?: number;
+  /** Per-call weight overrides, keyed by variant id. Lets the densify
+   *  pass crush EMPTY weight without rebuilding the adjacency table. */
+  weightOverride?: ReadonlyMap<string, number>;
+  /** "Soft" pre-seed: restrict each listed cell's options to the given
+   *  subset (instead of locking to a single id). Used by the additive
+   *  flow so a cumulative STRAIGHT_NS can UPGRADE to TEE_NES when a new
+   *  track branches off it — pin the required port-Y signature but let
+   *  WFC pick a richer variant that covers it. */
+  softPreSeed?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 export interface WFCResult {
@@ -253,6 +262,17 @@ function solveOnce(
       set.add(id);
     }
   }
+  // Apply soft pre-seeds (intersection with allowed subset). Lets the
+  // caller say "this cell must be one of these variants" without locking
+  // to a single id.
+  if (opts.softPreSeed) {
+    for (const [k, allowed] of opts.softPreSeed) {
+      const set = cellOptions.get(k);
+      if (!set) continue;
+      for (const id of [...set]) if (!allowed.has(id)) set.delete(id);
+      if (set.size === 0) throw new Error('WFC_CONTRADICTION');
+    }
+  }
 
   // Propagate from every cell once (initial settle).
   const toPropagate: string[] = [];
@@ -267,7 +287,7 @@ function solveOnce(
     const next = pickLowestEntropyCell(cellOptions, rng);
     if (!next) break; // all collapsed
     const opts2 = cellOptions.get(next)!;
-    const choice = weightedPick([...opts2], table, rng);
+    const choice = weightedPick([...opts2], table, rng, opts.weightOverride);
     opts2.clear();
     opts2.add(choice);
     const queue = [next];
@@ -346,12 +366,15 @@ function weightedPick(
   ids: readonly string[],
   table: AdjacencyTable,
   rng: () => number,
+  weightOverride?: ReadonlyMap<string, number>,
 ): string {
+  const wOf = (id: string): number =>
+    weightOverride?.get(id) ?? table.byId.get(id)!.weight;
   let total = 0;
-  for (const id of ids) total += table.byId.get(id)!.weight;
+  for (const id of ids) total += wOf(id);
   let r = rng() * total;
   for (const id of ids) {
-    r -= table.byId.get(id)!.weight;
+    r -= wOf(id);
     if (r <= 0) return id;
   }
   return ids[ids.length - 1]!;

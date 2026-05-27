@@ -23,6 +23,9 @@ function samplesForCurve(length: number): number {
 export interface JunctionTrackOptions {
   graph: TrackGraph;
   position?: THREE.Vector3Tuple;
+  /** Optional deck colour override. Lets each fresh roll pick a random
+   *  colour so consecutive WFC layouts are visually distinguishable. */
+  deckColor?: number;
 }
 
 /**
@@ -40,8 +43,11 @@ export class JunctionTrack implements Entity {
    *  outbound direction. */
   private chevrons = new Map<string, THREE.Group>();
 
+  private readonly deckColor?: number;
+
   constructor(opts: JunctionTrackOptions) {
     this.graph = opts.graph;
+    this.deckColor = opts.deckColor;
     this.object3d = this.build();
     if (opts.position) this.object3d.position.fromArray(opts.position);
   }
@@ -87,6 +93,7 @@ export class JunctionTrack implements Entity {
     const g = new THREE.Group();
     const deckMat = MAT.gray.clone();
     deckMat.side = THREE.DoubleSide;
+    if (this.deckColor !== undefined) deckMat.color.setHex(this.deckColor);
 
     // --- Bridge pillars: two thin piers per ELEVATED cell, on the deck
     //     centerline and spaced apart along the track direction (so a
