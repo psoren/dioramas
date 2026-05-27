@@ -13,7 +13,7 @@ import { UNDER_PASS_NESW } from './trackTile';
 import { buildGraphFromLayout, NodeKind, TrackGraph, GraphNode } from './trackGraph';
 import {
   dirVector, effectivePorts, opposite, PlacedTile, STRAIGHT_NS,
-  ELEVATED_STRAIGHT_NS, CURVE_NE, ELEVATED_CURVE_NE, RAMP_NS,
+  ELEVATED_STRAIGHT_NS, CURVE_NE, ELEVATED_CURVE_NE, RAMP_NS, RAMP_HEIGHT,
 } from './trackTile';
 import {
   AdjacencyTable,
@@ -180,6 +180,13 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
       // trim cells whose ports don't all match a neighbour. 1-port
       // STATION tiles are exempt (their port IS the station's stub).
       trimDeadEnds(layout);
+      // Strip "floating" upper decks: parallel-overpass or elevated
+      // chains that no ramp ever reaches. Without a ramp the elevated
+      // layer is unreachable from ground — visually a floating bridge.
+      // We BFS at Y=H from ramp high ports; primary tiles outside that
+      // reachable set get stripped (under-tile kept if it exists, so
+      // the lower track remains).
+      if (stripUnreachableUpperDecks(layout)) trimDeadEnds(layout);
       const tiles = layout.tiles();
       if (tiles.length < 4) { bump('too-sparse-after-component-filter'); continue; }
 
@@ -348,6 +355,67 @@ function portYInLayout(t: PlacedTile, p: 'N' | 'E' | 'S' | 'W'): number {
  *  This is how we ship a single-network layout from a WFC output that
  *  technically satisfies local rules but produced multiple disconnected
  *  blobs. */
+/** Detect elevated chains (primary ELEVATED tiles) that no ramp can
+ *  reach and strip their primary so the cell falls back to its under-
+ *  tile (or empty if no under). BFS at Y=H starting from every ramp's
+ *  high-port-side neighbour; any primary-elevated cell not reachable
+ *  is a floating, unreachable upper deck. */
+function stripUnreachableUpperDecks(layout: TrackLayout): boolean {
+  const reachable = new Set<string>();
+  const queue: Array<[number, number]> = [];
+  // Seed: each ramp's high-port-side neighbour (Y=H entry).
+  for (const tile of layout.tiles()) {
+    if (tile.def.kind !== 'ramp-ns') continue;
+    if (layout.get(tile.gridX, tile.gridZ) !== tile) continue; // primary only
+    for (const p of effectivePorts(tile)) {
+      if (Math.abs(portYInLayout(tile, p) - RAMP_HEIGHT) > 0.01) continue;
+      const [dx, dz] = dirVector(p);
+      const nx = tile.gridX + dx;
+      const nz = tile.gridZ + dz;
+      const key = `${nx},${nz}`;
+      if (reachable.has(key)) continue;
+      reachable.add(key);
+      queue.push([nx, nz]);
+    }
+  }
+  // BFS along Y=H ports.
+  while (queue.length > 0) {
+    const [cx, cz] = queue.shift()!;
+    const primary = layout.get(cx, cz);
+    if (!primary) continue;
+    for (const p of effectivePorts(primary)) {
+      if (Math.abs(portYInLayout(primary, p) - RAMP_HEIGHT) > 0.01) continue;
+      const [dx, dz] = dirVector(p);
+      const nx = cx + dx;
+      const nz = cz + dz;
+      const key = `${nx},${nz}`;
+      if (reachable.has(key)) continue;
+      const neighbor = layout.get(nx, nz);
+      if (!neighbor) continue;
+      const want = opposite(p);
+      const nPorts = effectivePorts(neighbor);
+      if (!nPorts.includes(want)) continue;
+      if (Math.abs(portYInLayout(neighbor, want) - RAMP_HEIGHT) > 0.01) continue;
+      reachable.add(key);
+      queue.push([nx, nz]);
+    }
+  }
+  // Strip primary ELEVATED tiles outside `reachable`.
+  let changed = false;
+  const snapshot = [...layout.tiles()];
+  for (const t of snapshot) {
+    if (layout.get(t.gridX, t.gridZ) !== t) continue;
+    if (t.def.kind !== 'elevated-straight-ns' && t.def.kind !== 'elevated-curve-ne') continue;
+    const key = `${t.gridX},${t.gridZ}`;
+    if (reachable.has(key)) continue;
+    const under = layout.getUnder(t.gridX, t.gridZ);
+    layout.remove(t.gridX, t.gridZ);
+    if (under) layout.place(t.gridX, t.gridZ, under.def, under.rotation, under.routing, under.level);
+    changed = true;
+  }
+  return changed;
+}
+
 /** Iteratively remove tiles whose ports don't all connect to a
  *  neighbour at matching Y. STATION_N tiles (1-port intentional
  *  dead-end) are exempt. After a tile is removed, neighbours that
