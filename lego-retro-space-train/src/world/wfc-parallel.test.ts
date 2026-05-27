@@ -43,13 +43,13 @@ describe('parallel overpass probe', () => {
     expect(solves).toBeGreaterThan(0);
   }, 90000);
 
-  it('elevated graph builds (preferPrimary) and has through-stations sometimes', () => {
+  it('elevated graph stats with failure categorisation', () => {
     const size = 13;
     let solves = 0;
-    let elevatedBuilds = 0;
+    const reasons: Record<string, number> = {};
+    let elevatedBuildsOK = 0;
     let elevatedWithThroughStations = 0;
-    let elevatedThrows = 0;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
       const seed = 5_000 + i * 197;
       let s = seed;
       const rng = () => {
@@ -62,17 +62,35 @@ describe('parallel overpass probe', () => {
       try { main = generateWFCGraph({ size, rng, maxRetries: 200 }); }
       catch { continue; }
       solves++;
+      // Count parallel cells (primary ELEVATED with under at same rotation).
+      let parallelCount = 0;
+      for (const t of main.graph.layout.tiles()) {
+        if (main.graph.layout.get(t.gridX, t.gridZ) !== t) continue;
+        const under = main.graph.layout.getUnder(t.gridX, t.gridZ);
+        if (!under) continue;
+        const isPrimaryElevated = t.def.kind === 'elevated-straight-ns' || t.def.kind === 'elevated-curve-ne';
+        if (!isPrimaryElevated) continue;
+        if (t.rotation === under.rotation) parallelCount++;
+      }
       try {
         const elev = extractGraphFromLayout(main.graph.layout, rng, { preferPrimary: true });
-        elevatedBuilds++;
-        const through = elev.stations.filter((s) => s.edges.length >= 2);
+        elevatedBuildsOK++;
+        const through = elev.stations.filter((st) => st.edges.length >= 2);
         if (through.length >= 2) elevatedWithThroughStations++;
-      } catch { elevatedThrows++; }
+        const key = `OK (parallel=${parallelCount}, through=${through.length})`;
+        reasons[key] = (reasons[key] ?? 0) + 1;
+      } catch (e) {
+        const msg = (e as Error).message.slice(0, 60);
+        const key = `FAIL: ${msg} (parallel=${parallelCount})`;
+        reasons[key] = (reasons[key] ?? 0) + 1;
+      }
     }
-    console.log(`\nelevated graph probe (${solves}/30 solves):`);
-    console.log(`  elevated builds:                 ${elevatedBuilds}/${solves}`);
+    console.log(`\nelevated detail probe (${solves}/50 solves):`);
+    console.log(`  elevated builds OK:              ${elevatedBuildsOK}/${solves}`);
     console.log(`  elevated has ≥2 through-stations ${elevatedWithThroughStations}/${solves}`);
-    console.log(`  elevated build threw:            ${elevatedThrows}/${solves}`);
+    for (const [k, v] of Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 12)) {
+      console.log(`    ${v}× ${k}`);
+    }
     expect(solves).toBeGreaterThan(0);
-  }, 90000);
+  }, 120000);
 });

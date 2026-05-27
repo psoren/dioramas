@@ -64,11 +64,40 @@
       border-radius: 6px;
       padding: 8px;
     }
-    .set img, .set svg {
+    .set .render-stack {
+      position: relative;
+      cursor: zoom-in;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #000;
+    }
+    .set .render-stack img.main {
       width: 100%;
       height: auto;
       display: block;
-      image-rendering: pixelated;
+    }
+    .set .render-stack .topdown {
+      position: absolute;
+      bottom: 4px;
+      right: 4px;
+      width: 38%;
+      max-width: 90px;
+      border: 1px solid #333;
+      background: #1a1a22;
+      border-radius: 3px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+    .set .render-stack .topdown img {
+      width: 100%;
+      display: block;
+    }
+    .set .render-stack.missing {
+      cursor: default;
+      padding: 24px 12px;
+      text-align: center;
+      color: #666;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
     }
     .set .meta {
       font-family: ui-monospace, monospace;
@@ -78,9 +107,41 @@
     }
     .set .meta.fail { color: #f77; }
     .set .meta .ok { color: #5e5; }
+    /* Lightbox / fullscreen modal */
+    .lightbox {
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.92);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      cursor: zoom-out;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img {
+      max-width: 96vw;
+      max-height: 96vh;
+      object-fit: contain;
+    }
+    .lightbox .caption {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #ccc;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 4px 10px;
+      border-radius: 4px;
+    }
   </style>
 </head>
 <body>
+  <div class="lightbox" id="lightbox" onclick="this.classList.remove('open')">
+    <img id="lightbox-img" alt="">
+    <div class="caption" id="lightbox-caption"></div>
+  </div>
   <h1>WFC Generation Iterations</h1>
   <div class="subtitle">Newest batch on top. Each batch is 10 layouts at 13×13.</div>
   <div id="batches"></div>
@@ -120,9 +181,16 @@
               const errLine = s.elevatedErr && !s.elevatedOK
                 ? `<div class="meta" style="color:#a66;font-size:9px">${escapeHtml(s.elevatedErr)}</div>`
                 : '';
+              const pngUrl = `/batches/${batch.batchId}/set-${i + 1}.png`;
+              const svgUrl = `/batches/${batch.batchId}/set-${i + 1}.svg`;
+              const caption = `${batch.commit} • set ${i + 1} • seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag}`;
               return `
                 <div class="set">
-                  <img src="/batches/${batch.batchId}/set-${i + 1}.svg" alt="set ${i + 1}">
+                  <div class="render-stack" onclick="openLightbox('${pngUrl}', '${escapeAttr(caption)}')">
+                    <img class="main" src="${pngUrl}" alt="set ${i + 1} 3/4 view"
+                      onerror="this.parentElement.classList.add('missing');this.style.display='none';this.parentElement.innerHTML+='<span>no 3D render yet — run scripts/screenshot-batch.mjs</span>';this.parentElement.removeAttribute('onclick');this.parentElement.style.cursor='default';">
+                    <div class="topdown"><img src="${svgUrl}" alt="top-down"></div>
+                  </div>
                   <div class="meta">seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag}</div>
                   ${errLine}
                 </div>
@@ -134,8 +202,20 @@
       }
     }
     function escapeHtml(s) {
-      return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;');
+    }
+    function openLightbox(src, caption) {
+      const lb = document.getElementById('lightbox');
+      document.getElementById('lightbox-img').src = src;
+      document.getElementById('lightbox-caption').textContent = caption;
+      lb.classList.add('open');
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') document.getElementById('lightbox').classList.remove('open');
+    });
     load();
   </script>
 </body>

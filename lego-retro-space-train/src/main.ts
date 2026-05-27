@@ -234,14 +234,14 @@ function randomizeTrack(): void {
   placeTrackOnGraph(graph, stations);
 }
 
-function wfcTrack(): void {
+function wfcTrack(seedOverride?: number): void {
   // Generate FIRST, then tear down — if WFC fails we keep the existing
   // layout on screen instead of clearing to nothing. No template
   // fallback: this button is exclusively WFC, otherwise it'd silently
   // hand back the rectangle/spur template the user is trying to escape.
   // Instead we retry at progressively smaller grid sizes (easier for the
   // solver). If every size fails we leave the previous layout intact.
-  const seed = Math.floor(Math.random() * 1_000_000);
+  const seed = seedOverride ?? Math.floor(Math.random() * 1_000_000);
   console.log(`wfc seed: ${seed}`);
   const mulberry = mulberry32(seed);
   const firstRoll = cumulativeLayout.tiles().length === 0;
@@ -424,4 +424,21 @@ sim.start();
 // Expose for debugging from the browser console
 if (import.meta.env.DEV) {
   (window as unknown as { sim: Sim }).sim = sim;
+}
+
+// Auto-trigger WFC if ?wfc-seed=N is in the URL. Used by the Playwright
+// screenshot pipeline so the dashboard's 3D render matches the seed
+// recorded in the batch metadata.
+{
+  const p = new URLSearchParams(window.location.search);
+  const wfcSeed = p.get('wfc-seed');
+  if (wfcSeed !== null) {
+    // Defer by a frame so the scene mounts cleanly before WFC builds.
+    requestAnimationFrame(() => wfcTrack(Number(wfcSeed)));
+  }
+  // For headless screenshots: optional ?nohud=1 hides the HUD panels.
+  if (p.get('nohud') === '1') {
+    const hudRoot = document.getElementById('ui-root');
+    if (hudRoot) hudRoot.style.display = 'none';
+  }
 }

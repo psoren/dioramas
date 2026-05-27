@@ -1,5 +1,101 @@
 [
   {
+    "batchId": "2026-05-27T16-54-48-685c361",
+    "commit": "685c361",
+    "timestamp": "2026-05-27T16:54:50.202Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 10,
+      "parallelTotal": 158,
+      "elevatedOK": 10
+    },
+    "sets": [
+      {
+        "seed": 108214,
+        "ok": true,
+        "tiles": 128,
+        "parallel": 29,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 109153,
+        "ok": true,
+        "tiles": 107,
+        "parallel": 17,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 110016,
+        "ok": true,
+        "tiles": 115,
+        "parallel": 11,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 110945,
+        "ok": true,
+        "tiles": 129,
+        "parallel": 13,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 111749,
+        "ok": true,
+        "tiles": 125,
+        "parallel": 10,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 112762,
+        "ok": true,
+        "tiles": 65,
+        "parallel": 8,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 113796,
+        "ok": true,
+        "tiles": 79,
+        "parallel": 12,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 114991,
+        "ok": true,
+        "tiles": 105,
+        "parallel": 16,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 105893,
+        "ok": true,
+        "tiles": 95,
+        "parallel": 6,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 106699,
+        "ok": true,
+        "tiles": 124,
+        "parallel": 36,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      }
+    ],
+    "notes": "Iter 5: same code as iter 4 (transition mapping fix + weight bump). Re-run to capture 3/4 view PNG screenshots alongside top-down SVGs. Each set's render is clickable for fullscreen."
+  },
+  {
     "batchId": "2026-05-27T16-47-08-06b2694",
     "commit": "06b2694",
     "timestamp": "2026-05-27T16:47:11.671Z",
