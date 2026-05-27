@@ -32,6 +32,7 @@ import {
   DIRECTIONS,
   EMPTY_TILE,
   PlacedTile,
+  RAMP_HEIGHT,
   Rotation,
   TrackTileDef,
   effectivePorts,
@@ -59,9 +60,11 @@ export interface Variant {
   weight: number;
   /** Effective ports after rotation, cached. */
   ports: readonly Direction[];
-  /** For each side {N,E,S,W}, the world-Y of the port on that side, or
-   *  null if no port. */
-  portY: Record<Direction, number | null>;
+  /** For each side {N,E,S,W}, the world-Y(s) of the port(s) on that
+   *  side, or null if no port. Most tiles have one Y per direction;
+   *  parallel-overpass tiles have two (lower + upper layer). Array is
+   *  always sorted ascending so adjacency comparison is straightforward. */
+  portY: Record<Direction, readonly number[] | null>;
 }
 
 /** Enumerate every meaningful (def, rotation, level) variant, deduping
@@ -76,18 +79,42 @@ export function enumerateVariants(maxLevel = 1): Variant[] {
       for (const rot of ROTATIONS) {
         const fakeTile: PlacedTile = { gridX: 0, gridZ: 0, def, rotation: rot, level };
         const ports = effectivePorts(fakeTile);
-        // Canonical key: sorted (port, Y) pairs + level + kind. Dedupes
-        // rotations that produce the same port set at the same Ys.
-        const portKey = [...ports]
-          .map((p) => `${p}:${portY(fakeTile, p).toFixed(3)}`)
-          .sort()
+        const portYMap: Record<Direction, readonly number[] | null> = {
+          N: null, E: null, S: null, W: null,
+        };
+        // Compute multi-Y for parallel-overpass tiles (both layers
+        // present at every port); single-Y for everything else.
+        if (def.kind === 'parallel-overpass-ns') {
+          const yLow = level * RAMP_HEIGHT;
+          const yHigh = (level + 1) * RAMP_HEIGHT;
+          // Rotation 0 (or 2): both layers N-S → N+S ports at both Ys.
+          // Rotation 1 (or 3): both layers E-W → E+W ports at both Ys.
+          const vertical = rot === 0 || rot === 2;
+          if (vertical) { portYMap.N = [yLow, yHigh]; portYMap.S = [yLow, yHigh]; }
+          else { portYMap.E = [yLow, yHigh]; portYMap.W = [yLow, yHigh]; }
+        } else if (def.kind === 'parallel-overpass-curve-ne') {
+          // Curve variant: both layers turn the same way. Base rotation
+          // (0) has N+E ports at both Y=0 and Y=H. Rotations rotate the
+          // port pair around the cell.
+          const yLow = level * RAMP_HEIGHT;
+          const yHigh = (level + 1) * RAMP_HEIGHT;
+          const ys = [yLow, yHigh] as const;
+          // Effective port directions for CURVE_NE rot r: N+E becomes
+          // E+S (rot 1), S+W (rot 2), W+N (rot 3).
+          const ports2 = effectivePorts(fakeTile);
+          for (const p of ports2) portYMap[p] = ys;
+        } else {
+          for (const p of ports) portYMap[p] = [portY(fakeTile, p)];
+        }
+        // Canonical key: sorted (port, Y-array) entries + level + kind.
+        // Dedupes rotations that produce the same port-Y signature.
+        const portKey = (['N', 'E', 'S', 'W'] as const)
+          .map((d) => `${d}:${portYMap[d] === null ? 'x' : (portYMap[d] as readonly number[]).map((y) => y.toFixed(3)).join('|')}`)
           .join(',');
         const key = `${def.kind}|L${level}|${portKey}`;
         if (seen.has(key)) continue;
         seen.add(key);
         const id = `${def.kind}@${rot}${level === 0 ? '' : `+L${level}`}`;
-        const portYMap: Record<Direction, number | null> = { N: null, E: null, S: null, W: null };
-        for (const p of ports) portYMap[p] = portY(fakeTile, p);
         out.push({
           id, def, rotation: rot, level,
           weight: defaultWeight(def),
@@ -108,6 +135,10 @@ function supportsLevels(def: TrackTileDef): boolean {
     // Under-pass at level k: lower layer at k*H, upper layer at (k+1)*H.
     // Level 0 = ground/level-1 crossing, level 1 = level-1/level-2 crossing.
     def.kind === 'under-pass-nesw' ||
+    // Parallel overpass (straight + curve): same convention as
+    // under-pass — lower at k*H, upper at (k+1)*H, both same direction.
+    def.kind === 'parallel-overpass-ns' ||
+    def.kind === 'parallel-overpass-curve-ne' ||
     // Stations on elevated track — a station at level=1 sits at y=H, etc.
     def.kind === 'station-n'
   );
@@ -128,6 +159,8 @@ function defaultWeight(def: TrackTileDef): number {
     case 'elevated-curve-ne': return 0.25;
     case 'station-n': return 0.4;
     case 'under-pass-nesw': return 0.3;
+    case 'parallel-overpass-ns': return 0.3;
+    case 'parallel-overpass-curve-ne': return 0.3;
     case 'empty': return 0.005;
     default: return 1;
   }
@@ -164,13 +197,25 @@ export function buildAdjacencyTable(variants: readonly Variant[]): AdjacencyTabl
       for (const b of variants) {
         const bSide = opposite(side);
         const bY = b.portY[bSide];
-        const match = (aY === null && bY === null)
-          || (aY !== null && bY !== null && Math.abs(aY - bY) < 0.01);
-        if (match) allowed.get(a.id)![side].add(b.id);
+        if (portYArraysEqual(aY, bY)) allowed.get(a.id)![side].add(b.id);
       }
     }
   }
   return { variants, byId, allowed };
+}
+
+/** True when two port-Y arrays match. Both null = compatible (no port
+ *  on either side); both non-null = same length and same Ys element-
+ *  wise (within tolerance). Arrays are pre-sorted ascending by
+ *  enumerateVariants so we can compare positionally. */
+function portYArraysEqual(a: readonly number[] | null, b: readonly number[] | null): boolean {
+  if (a === null && b === null) return true;
+  if (a === null || b === null) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i]! - b[i]!) >= 0.01) return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

@@ -222,6 +222,38 @@ export const UNDER_PASS_NESW: TrackTileDef = {
   },
 };
 
+// --- Parallel overpass: 2 N-S layers stacked, same direction ----------
+// Lower layer at Y=0 (STRAIGHT_NS), upper at Y=H (ELEVATED_STRAIGHT_NS),
+// both running N-S. Unlike UNDER_PASS_NESW where the layers cross
+// perpendicular, here they run in the SAME direction so a train on
+// either layer just passes through. WFC-virtual like UNDER_PASS_NESW —
+// decomposed at placement into a primary + under-tile pair.
+//
+// Adjacency-wise this tile has TWO ports on every passing side (N+S at
+// both Y=0 and Y=H), so it can only adjoin another tile that has the
+// same dual-Y signature on the matching side — either another parallel
+// overpass cell, or a special transition tile.
+export const PARALLEL_OVERPASS_NS: TrackTileDef = {
+  kind: 'parallel-overpass-ns',
+  basePorts: ['N', 'S'],
+  samplePath() {
+    throw new Error('PARALLEL_OVERPASS is a WFC-virtual tile; decompose before placement');
+  },
+};
+
+// --- Parallel overpass curve: 2 N-E curves stacked, same direction ----
+// Lower CURVE_NE at Y=0, upper ELEVATED_CURVE_NE at Y=H, both bending
+// the same way. Needed for closing parallel runs into a loop — without
+// curve variants the straight-only parallel overpass can never close on
+// itself, so WFC's adjacency rules forbid placing it at all.
+export const PARALLEL_OVERPASS_CURVE_NE: TrackTileDef = {
+  kind: 'parallel-overpass-curve-ne',
+  basePorts: ['N', 'E'],
+  samplePath() {
+    throw new Error('PARALLEL_OVERPASS_CURVE is a WFC-virtual tile; decompose before placement');
+  },
+};
+
 // --- Station: 1 port, dead-end. Buffer stop on the far side. ----------
 // Lets WFC place stations naturally inside the grid (a STATION_N tile
 // has a port on its N side and no ports on E/S/W, so WFC's adjacency
@@ -346,6 +378,7 @@ function requirePair(def: TrackTileDef, from: Direction, to: Direction): void {
 export const ALL_TILES: readonly TrackTileDef[] = [
   STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW, RAMP_NS, RAMP_NS_TALL,
   ELEVATED_STRAIGHT_NS, ELEVATED_CURVE_NE, STATION_N, UNDER_PASS_NESW,
+  PARALLEL_OVERPASS_NS, PARALLEL_OVERPASS_CURVE_NE,
 ];
 
 // --- Placed tile + helpers ----------------------------------------------

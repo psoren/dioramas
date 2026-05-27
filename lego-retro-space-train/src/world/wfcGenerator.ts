@@ -13,7 +13,7 @@ import { UNDER_PASS_NESW } from './trackTile';
 import { buildGraphFromLayout, NodeKind, TrackGraph, GraphNode } from './trackGraph';
 import {
   dirVector, effectivePorts, opposite, PlacedTile, STRAIGHT_NS,
-  ELEVATED_STRAIGHT_NS,
+  ELEVATED_STRAIGHT_NS, CURVE_NE, ELEVATED_CURVE_NE,
 } from './trackTile';
 import {
   AdjacencyTable,
@@ -131,6 +131,22 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
           // STRAIGHT_NS has y=0 ports by default, so + level*H lift puts
           // them at the right elevation for the under-pass's bottom layer.
           layout.placeUnder(gx, gz, STRAIGHT_NS, lowerRot, undefined, v.level);
+          continue;
+        }
+        if (v.def.kind === 'parallel-overpass-ns') {
+          // Both layers same direction. Rotation 0/2 → both N-S; rotation
+          // 1/3 → both E-W. Upper layer at (level+1)*H, lower at level*H.
+          const vertical = v.rotation === 0 || v.rotation === 2;
+          const rot = vertical ? 0 : 1;
+          layout.place(gx, gz, ELEVATED_STRAIGHT_NS, rot, undefined, v.level);
+          layout.placeUnder(gx, gz, STRAIGHT_NS, rot, undefined, v.level);
+          continue;
+        }
+        if (v.def.kind === 'parallel-overpass-curve-ne') {
+          // Both layers curve the same way. Upper layer ELEVATED_CURVE_NE,
+          // lower CURVE_NE — same rotation.
+          layout.place(gx, gz, ELEVATED_CURVE_NE, v.rotation, undefined, v.level);
+          layout.placeUnder(gx, gz, CURVE_NE, v.rotation, undefined, v.level);
           continue;
         }
         layout.place(gx, gz, v.def, v.rotation, undefined, v.level);
@@ -514,7 +530,8 @@ function variantsCovering(tile: PlacedTile, table: AdjacencyTable): Set<string> 
     let ok = true;
     for (const req of required) {
       const vy = v.portY[req.dir];
-      if (vy === null || Math.abs(vy - req.y) > 0.01) { ok = false; break; }
+      if (vy === null) { ok = false; break; }
+      if (!vy.some((y) => Math.abs(y - req.y) < 0.01)) { ok = false; break; }
     }
     if (ok) allowed.add(v.id);
   }
