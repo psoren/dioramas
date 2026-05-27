@@ -1,6 +1,31 @@
 import * as THREE from 'three';
 import { Sim } from './sim/Sim';
 import { mountHUD } from './ui/hud';
+
+// Dev: pipe browser console output to /tmp/sim-console.log via the Vite
+// dev server's POST endpoint, so a CLI agent can read what the browser
+// is logging without driving the browser.
+if (import.meta.env.DEV) {
+  const post = (level: 'log' | 'warn' | 'error', msg: string) => {
+    fetch('/__sim_log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level, msg }),
+    }).catch(() => { /* swallow — we don't want logging to crash anything */ });
+  };
+  const stringify = (a: unknown): string => {
+    if (typeof a === 'string') return a;
+    if (a instanceof Error) return `${a.name}: ${a.message}`;
+    try { return JSON.stringify(a); } catch { return String(a); }
+  };
+  for (const level of ['log', 'warn', 'error'] as const) {
+    const orig = console[level].bind(console);
+    console[level] = (...args: unknown[]) => {
+      post(level, args.map(stringify).join(' '));
+      orig(...args);
+    };
+  }
+}
 import { Entity } from './sim/Entity';
 import {
   buildSceneEntity,
@@ -15,6 +40,7 @@ import { ApartmentBuilding } from './entities/ApartmentBuilding';
 import { JunctionTrack } from './entities/JunctionTrack';
 import { GraphTrain } from './entities/GraphTrain';
 import { generateRandomGraphTrack } from './world/trackGraphGenerators';
+import { generateWFCGraph } from './world/wfcGenerator';
 import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
 
 window.addEventListener('error', (event) => {
@@ -67,8 +93,10 @@ if (apartment) {
 }
 
 // Day/night cycle. Built after the manifest so it can discover the lights
-// the manifest's lighting setup added to the scene.
-addEntity('day-night-cycle', () => new DayNightCycle(sim));
+// the manifest's lighting setup added to the scene. Held in a variable so
+// the HUD time-of-day button can lock it to a fixed time.
+const dayNightCycle = new DayNightCycle(sim);
+sim.add(dayNightCycle);
 
 // Cinematic auto-camera: the things worth focusing on are the moving
 // vehicles (trains, trucks) and the wandering pedestrians. Stationary set
@@ -114,6 +142,34 @@ const URL_SEED = (() => {
   const v = p.get('seed');
   return v ? Number(v) : null;
 })();
+function placeTrackOnGraph(
+  graph: ReturnType<typeof generateRandomGraphTrack>['graph'],
+  stations: ReturnType<typeof generateRandomGraphTrack>['stations'],
+): void {
+  console.log(
+    `placeTrackOnGraph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ` +
+    `${stations.length} stations (${stations.filter((s) => s.edges.length >= 2).length} through)`,
+  );
+  const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0] }));
+  randomEntities.push(track);
+  const targets = stations.filter((s) => s.edges.length >= 2);
+  if (targets.length >= 2) {
+    const train = sim.add(new GraphTrain({
+      graph,
+      targetCycle: targets,
+      startAt: targets[0],
+    }));
+    train.object3d.position.y += 0.02;
+    randomEntities.push(train);
+    currentTrain = train;
+    const switchUpdater: Entity = {
+      object3d: new THREE.Group(),
+      update: () => updateSwitches(track, train, graph),
+    };
+    randomEntities.push(sim.add(switchUpdater));
+  }
+}
+
 function randomizeTrack(): void {
   for (const e of randomEntities) sim.remove(e);
   randomEntities.length = 0;
@@ -121,26 +177,36 @@ function randomizeTrack(): void {
   console.log(`track seed: ${seed} (pin with ?seed=${seed})`);
   const mulberry = mulberry32(seed);
   const { graph, stations } = generateRandomGraphTrack(mulberry);
-  const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0] }));
-  randomEntities.push(track);
-  if (stations.length >= 2) {
-    const train = sim.add(new GraphTrain({
-      graph,
-      targetCycle: stations,
-      startAt: stations[0],
-    }));
-    train.object3d.position.y += 0.02;
-    randomEntities.push(train);
-    currentTrain = train;
+  placeTrackOnGraph(graph, stations);
+}
 
-    // Per-frame switch updater: aims each junction's arrow toward the
-    // exit port the train will take when it next reaches that junction.
-    const switchUpdater: Entity = {
-      object3d: new THREE.Group(),
-      update: () => updateSwitches(track, train, graph),
-    };
-    randomEntities.push(sim.add(switchUpdater));
+function wfcTrack(): void {
+  // Generate FIRST, then tear down — if WFC fails we keep the existing
+  // layout on screen instead of clearing to nothing. No template
+  // fallback: this button is exclusively WFC, otherwise it'd silently
+  // hand back the rectangle/spur template the user is trying to escape.
+  // Instead we retry at progressively smaller grid sizes (easier for the
+  // solver). If every size fails we leave the previous layout intact.
+  const seed = Math.floor(Math.random() * 1_000_000);
+  console.log(`wfc seed: ${seed}`);
+  const mulberry = mulberry32(seed);
+  let result: ReturnType<typeof generateWFCGraph> | null = null;
+  for (const size of [11, 9, 7]) {
+    try {
+      result = generateWFCGraph({ size, rng: mulberry });
+      console.log(`wfc ${size}x${size} done after ${result.retries} retries`);
+      break;
+    } catch (err) {
+      console.warn(`wfc ${size}x${size} failed:`, err);
+    }
   }
+  if (!result) {
+    console.error('wfc: all sizes failed; keeping previous layout');
+    return;
+  }
+  for (const e of randomEntities) sim.remove(e);
+  randomEntities.length = 0;
+  placeTrackOnGraph(result.graph, result.stations);
 }
 
 function updateSwitches(
@@ -223,7 +289,9 @@ mountHUD(sim, {
   subtitle: tracked && hasTelemetry(tracked.entity) ? 'Classic Space · Telemetry' : 'Classic Space',
   trackedVehicle: tracked && hasTelemetry(tracked.entity) ? tracked.entity : undefined,
   onRandomizeTrack: randomizeTrack,
+  onWFCTrack: wfcTrack,
   onToggleGrid: (active) => { gridGroup.visible = active; },
+  onTimeOfDay: (dayNess) => { dayNightCycle.lockTo(dayNess); },
   onTogglePOV: (active) => {
     if (!active || !currentTrain) {
       sim.cameraOverride = undefined;

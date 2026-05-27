@@ -46,6 +46,28 @@ export class JunctionTrack implements Entity {
     if (opts.position) this.object3d.position.fromArray(opts.position);
   }
 
+  /** Detach every mesh in our subtree from any parent and free GPU
+   *  resources. Belt-and-braces: `Sim.remove` already detaches our root
+   *  group, which makes children stop rendering — but if anything held a
+   *  stale reference to a child (e.g. an in-flight raycaster), this
+   *  ensures pillars / decks / chevrons are fully gone after a roll. */
+  dispose(): void {
+    this.object3d.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose();
+        // Materials may be shared from MAT — only dispose the per-edge
+        // clones we created in build (the ones with our own deck/stripe
+        // identities). For now leave material disposal alone to avoid
+        // tearing up shared MAT entries.
+      }
+    });
+    // Snap our object3d off any parent in case Sim.remove didn't.
+    this.object3d.removeFromParent();
+    // Clear children so subsequent traversals see nothing.
+    this.object3d.clear();
+    this.chevrons.clear();
+  }
+
   /** Show a chevron at each TEE cell in the given map pointing along the
    *  given direction. Cells not in the map have their chevron hidden. */
   setSwitchStates(states: ReadonlyMap<string, Direction>): void {
@@ -69,26 +91,38 @@ export class JunctionTrack implements Entity {
     // --- Bridge pillars: two thin piers per ELEVATED cell, on the deck
     //     centerline and spaced apart along the track direction (so a
     //     crossing train passes BETWEEN them, perpendicular to the
-    //     elevated track). Looks like a viaduct: two posts holding up the
-    //     span. ---
+    //     elevated track). Pillar HEIGHT scales with the tile's level
+    //     so a level-2 or level-3 elevated section gets correspondingly
+    //     taller piers.
+    //
+    //     Only build pillars for elevated tiles that are actually on an
+    //     edge (junction endpoint or in-between cell). The component
+    //     filter in WFC can leave behind tiles that survive connectivity
+    //     but aren't reached by the trace — those would be rendered as
+    //     "rogue" pillars with no deck above them. ---
+    const usedCells = new Set<string>();
+    for (const edge of this.graph.edges) {
+      usedCells.add(`${edge.from.gridX},${edge.from.gridZ}`);
+      usedCells.add(`${edge.to.gridX},${edge.to.gridZ}`);
+      for (const [gx, gz] of edge.midCells) usedCells.add(`${gx},${gz}`);
+    }
     const pillarMat = MAT.grayDark;
-    const pillarGeo = new THREE.BoxGeometry(0.16, RAMP_HEIGHT, 0.16);
     for (const tile of this.graph.layout.tiles()) {
       if (tile.def.kind !== 'elevated-straight-ns') continue;
+      if (!usedCells.has(`${tile.gridX},${tile.gridZ}`)) continue;
       const cx = tile.gridX * TILE_SIZE;
       const cz = tile.gridZ * TILE_SIZE;
-      // ELEVATED_STRAIGHT_NS base ports are N-S. Rotation 0/2 → track runs
-      // N-S; rotation 1/3 → track runs E-W. Piers are spaced ALONG the
-      // track direction.
       const horizontalTrack = tile.rotation === 1 || tile.rotation === 3;
       const alongX = horizontalTrack ? 1 : 0;
       const alongZ = horizontalTrack ? 0 : 1;
       const spacing = TILE_SIZE * 0.4;
+      const totalHeight = (1 + (tile.level ?? 0)) * RAMP_HEIGHT;
+      const pillarGeo = new THREE.BoxGeometry(0.16, totalHeight, 0.16);
       for (const sign of [-1, 1] as const) {
         const pillar = new THREE.Mesh(pillarGeo, pillarMat);
         pillar.position.set(
           cx + sign * alongX * spacing,
-          RAMP_HEIGHT / 2,
+          totalHeight / 2,
           cz + sign * alongZ * spacing,
         );
         pillar.castShadow = true;

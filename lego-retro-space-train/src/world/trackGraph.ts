@@ -88,8 +88,14 @@ export class TrackGraph {
     const tile = this.layout.get(gridX, gridZ);
     let y = 0;
     if (tile) {
-      if (tile.def.kind === 'elevated-straight-ns') y = RAMP_HEIGHT;
-      else if (tile.def.kind === 'ramp-ns') y = RAMP_HEIGHT / 2;
+      const yLift = (tile.level ?? 0) * RAMP_HEIGHT;
+      if (tile.def.kind === 'elevated-straight-ns' || tile.def.kind === 'elevated-curve-ne') {
+        y = RAMP_HEIGHT + yLift;
+      } else if (tile.def.kind === 'ramp-ns') {
+        y = RAMP_HEIGHT / 2 + yLift;
+      } else {
+        y = yLift;
+      }
     }
     let px = gridX * TILE_SIZE;
     let pz = gridZ * TILE_SIZE;
@@ -304,6 +310,61 @@ function buildStraightCurve(a: THREE.Vector3, b: THREE.Vector3): THREE.CatmullRo
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
 }
 
+/** Sample a contiguous run of ramp cells (same rotation) as ONE cosine
+ *  S-curve over the whole run. The XZ values come straight from each
+ *  tile's samplePath (which is linear); Y is overridden so the slope is
+ *  zero at the run's entry and exit and peaks once in the middle —
+ *  matches the previous single-cell cosine ease when L=1, and avoids the
+ *  "wave at every seam" artifact when L>1. */
+function sampleRampRun(
+  layout: TrackLayout,
+  midCells: ReadonlyArray<readonly [number, number]>,
+  startIdx: number,
+  endIdx: number,
+  startEntry: Direction,
+  startY: number,
+  samplesPerTile: number,
+): { points: THREE.Vector3[]; exitEntry: Direction; exitY: number } {
+  const L = endIdx - startIdx + 1;
+  const points: THREE.Vector3[] = [];
+  let entry = startEntry;
+  // First, determine the run's TOTAL Y change so the S-curve has the
+  // right endpoint. Each cell adds ±RAMP_HEIGHT depending on which way
+  // the train is going (= portY(tile, exit) - portY(tile, entry)).
+  let totalDelta = 0;
+  {
+    let probeEntry = startEntry;
+    for (let k = startIdx; k <= endIdx; k++) {
+      const tile = layout.get(midCells[k]![0], midCells[k]![1])!;
+      const ports = effectivePorts(tile);
+      const exit = ports[0] === probeEntry ? ports[1]! : ports[0]!;
+      totalDelta += portY(tile, exit) - portY(tile, probeEntry);
+      probeEntry = opposite(exit);
+    }
+  }
+  const endY = startY + totalDelta;
+  // Sample each cell, overriding Y with the run-wide S-curve. Run param
+  // u ∈ [0, L]; y(u) = startY + (Δ/2) * (1 - cos(π u / L)). Slope is 0 at
+  // u=0 and u=L, peak at u=L/2.
+  for (let k = startIdx; k <= endIdx; k++) {
+    const tile = layout.get(midCells[k]![0], midCells[k]![1])!;
+    const ports = effectivePorts(tile);
+    const exit = ports[0] === entry ? ports[1]! : ports[0]!;
+    const seg = sampleWorldPath(tile, entry, exit, samplesPerTile);
+    const cellOffset = k - startIdx;
+    const includeFirst = k === startIdx;
+    for (let s = includeFirst ? 0 : 1; s < seg.length; s++) {
+      const cellT = s / samplesPerTile;
+      const u = cellOffset + cellT;
+      const eased = startY + (totalDelta / 2) * (1 - Math.cos((Math.PI * u) / L));
+      const p = seg[s]!;
+      points.push(new THREE.Vector3(p.x, eased, p.z));
+    }
+    entry = opposite(exit);
+  }
+  return { points, exitEntry: entry, exitY: endY };
+}
+
 /** Among a tile's effective ports, the "main" ports are those whose opposite
  *  is also in the set (paired through-routes). For a TEE this is the
  *  through-pair (e.g. N/S for a TEE_NES). For a CROSS, all four. For a
@@ -398,20 +459,43 @@ function buildEdgeCurve(
   appendJunctionHalf(points, fromTile, from, exitPort);
 
   // Mid cells — Y-aware lookup so a stacked under-pass cell uses the
-  // correct tile (primary at y=RAMP_HEIGHT for the bridge edge, under
-  // STRAIGHT at y=0 for the cross-track edge).
+  // correct tile. Consecutive ramp cells with matching rotation are
+  // collapsed into one "ramp run" and re-sampled with a single cosine
+  // S-curve so multi-cell ramps stay wave-free (slope is continuous
+  // across cell boundaries, peaks once at the run's middle).
   let entry = opposite(exitPort);
   let currentY = portY(fromTile, exitPort);
-  for (let i = 0; i < midCells.length; i++) {
+  let i = 0;
+  while (i < midCells.length) {
     const [gx, gz] = midCells[i]!;
     const tile = layout.getAt(gx, gz, currentY) ?? layout.get(gx, gz);
     if (!tile) throw new Error(`midcell (${gx},${gz}) missing`);
-    const ports = effectivePorts(tile);
-    const exit = ports[0] === entry ? ports[1]! : ports[0]!;
-    const seg = sampleWorldPath(tile, entry, exit, SAMPLES_PER_TILE);
-    for (let k = 1; k < seg.length; k++) points.push(seg[k]!);
-    currentY = portY(tile, exit);
-    entry = opposite(exit);
+    if (tile.def.kind === 'ramp-ns') {
+      // Find the run end: consecutive ramp cells with the same rotation.
+      let runEnd = i;
+      while (runEnd + 1 < midCells.length) {
+        const nextCell = midCells[runEnd + 1]!;
+        const nextTile = layout.get(nextCell[0], nextCell[1]);
+        if (!nextTile || nextTile.def.kind !== 'ramp-ns') break;
+        if (nextTile.rotation !== tile.rotation) break;
+        runEnd++;
+      }
+      const result = sampleRampRun(
+        layout, midCells, i, runEnd, entry, currentY, SAMPLES_PER_TILE,
+      );
+      for (const p of result.points) points.push(p);
+      entry = result.exitEntry;
+      currentY = result.exitY;
+      i = runEnd + 1;
+    } else {
+      const ports = effectivePorts(tile);
+      const exit = ports[0] === entry ? ports[1]! : ports[0]!;
+      const seg = sampleWorldPath(tile, entry, exit, SAMPLES_PER_TILE);
+      for (let k = 1; k < seg.length; k++) points.push(seg[k]!);
+      currentY = portY(tile, exit);
+      entry = opposite(exit);
+      i++;
+    }
   }
 
   // To-junction half built node→boundary then reversed.

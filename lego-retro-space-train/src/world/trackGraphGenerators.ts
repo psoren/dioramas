@@ -85,7 +85,7 @@ export function generatePassingSiding(
   // bottom goes W (entry E, exit W). TEE_NES rotated 3 → ports {E, S, W};
   // routing {E: W} tells buildLoop the spare port S is unused for the
   // main loop walk. The S port is what the branch attaches to.
-  const overrides = new Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>();
+  const overrides = new Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction>; level?: number }>();
   overrides.set(`${teeEastX},${gzB}`, {
     def: TEE_NES, rotation: 3,
     routing: new Map<Direction, Direction>([['E', 'W']]),
@@ -328,7 +328,7 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
 
   // ---------- 4. Place decorations ----------
   const claimed = new Set<string>();
-  const overrides = new Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>();
+  const overrides = new Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction>; level?: number }>();
   type ExtraTile = { gx: number; gz: number; def: TrackTileDef; rotation: Rotation };
   const extraTiles: ExtraTile[] = [];
   const nodeCells: Array<{ gx: number; gz: number; kind: NodeKind; label: string }> = [];
@@ -382,7 +382,15 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   // 4b. Bridge on the opposite side.
   const bridgeRun = sides[bridgeSide];
   if (bridgeRun.cells.length < 3) return null;
-  placeBridge({ dir: bridgeRun.dir, cells: [...bridgeRun.cells] }, claimed, overrides);
+  // Pick bridge height: 1-level (3 cells) is the baseline; 2-level (5 cells)
+  // makes a taller viaduct if the side is long enough. 30% chance of tall.
+  const wantTall = bridgeRun.cells.length >= 5 && rng() < 0.3;
+  placeBridge(
+    { dir: bridgeRun.dir, cells: [...bridgeRun.cells] },
+    claimed,
+    overrides,
+    wantTall ? 2 : 1,
+  );
 
   // 4c. Cross-track — a straight line crossing the main loop through TWO
   // edges of the rectangle and terminating at stations outside on each end.
@@ -473,6 +481,33 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   nodeCells.push({ gx: underPassEnd[0], gz: underPassEnd[1], kind: 'station', label: stationLabel() });
   nodeCells.push({ gx: crossEnd[0], gz: crossEnd[1], kind: 'station', label: stationLabel() });
 
+  // 4d. Through-stations on the side opposite the spur. Two of them, at
+  // ~1/3 and ~2/3 along the side, so the train ALWAYS has ≥2 non-dead-end
+  // targets to cycle between (no reversal / bounce on stubs).
+  const farSide = oppositeOf[spurSide];
+  const farRun = sides[farSide];
+  if (farRun.cells.length > 0) {
+    const len = farRun.cells.length;
+    const targets = [Math.max(0, Math.floor(len / 3)), Math.min(len - 1, Math.floor((len * 2) / 3))];
+    for (const target of targets) {
+      for (let off = 0; off <= len; off++) {
+        let placed = false;
+        for (const sign of [0, -1, 1] as const) {
+          const idx = target + sign * off;
+          if (idx < 0 || idx >= len) continue;
+          const c = farRun.cells[idx]!;
+          const k = `${c[0]},${c[1]}`;
+          if (claimed.has(k)) continue;
+          claimed.add(k);
+          nodeCells.push({ gx: c[0], gz: c[1], kind: 'station', label: stationLabel() });
+          placed = true;
+          break;
+        }
+        if (placed) break;
+      }
+    }
+  }
+
   // ---------- 4. Place layout ----------
   const layout = new TrackLayout();
   placePolygonLoop(layout, cells, overrides);
@@ -519,22 +554,43 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
 function placeBridge(
   run: { dir: Direction; cells: Array<readonly [number, number]> },
   claimed: Set<string>,
-  overrides: Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>,
-): void {
-  const start = Math.floor((run.cells.length - 3) / 2);
-  const up = run.cells[start]!;
-  const el = run.cells[start + 1]!;
-  const dn = run.cells[start + 2]!;
-  overrides.set(`${up[0]},${up[1]}`, { def: RAMP_NS, rotation: RAMP_UP_ROT[run.dir] });
-  overrides.set(`${el[0]},${el[1]}`, { def: ELEVATED_STRAIGHT_NS, rotation: ELEVATED_ROT[run.dir] });
-  overrides.set(`${dn[0]},${dn[1]}`, { def: RAMP_NS, rotation: RAMP_DOWN_ROT[run.dir] });
-  // Claim the 3 bridge cells plus a 1-cell margin on each side so the
-  // next decoration (siding TEE, spur) can't land on the ramp seam — a
-  // TEE on a ramp tile would cause a Y discontinuity at the junction.
-  claimed.add(`${up[0]},${up[1]}`);
-  claimed.add(`${el[0]},${el[1]}`);
-  claimed.add(`${dn[0]},${dn[1]}`);
+  overrides: Map<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction>; level?: number }>,
+  topLevel: number = 1,
+): { elevCells: ReadonlyArray<readonly [number, number]> } {
+  // Bridge layout: `topLevel` ramps up + 1 elevated cell + `topLevel`
+  // ramps down. topLevel=1 → 3 cells (original). topLevel=2 → 5 cells.
+  // Each ramp lifts one level; the elevated cell sits at topLevel.
+  const totalCells = topLevel * 2 + 1;
+  if (run.cells.length < totalCells) {
+    // Fall back to a 3-cell bridge if the side isn't long enough.
+    return placeBridge(run, claimed, overrides, 1);
+  }
+  const start = Math.floor((run.cells.length - totalCells) / 2);
+  const cells = run.cells.slice(start, start + totalCells);
+  // Up ramps (climbing from level 0 to topLevel).
+  for (let i = 0; i < topLevel; i++) {
+    const c = cells[i]!;
+    overrides.set(`${c[0]},${c[1]}`, { def: RAMP_NS, rotation: RAMP_UP_ROT[run.dir], level: i });
+    claimed.add(`${c[0]},${c[1]}`);
+  }
+  // Elevated middle cell at topLevel.
+  const elev = cells[topLevel]!;
+  overrides.set(`${elev[0]},${elev[1]}`, {
+    def: ELEVATED_STRAIGHT_NS, rotation: ELEVATED_ROT[run.dir], level: topLevel - 1,
+  });
+  claimed.add(`${elev[0]},${elev[1]}`);
+  // Down ramps (descending from topLevel to 0).
+  for (let i = 0; i < topLevel; i++) {
+    const c = cells[topLevel + 1 + i]!;
+    overrides.set(`${c[0]},${c[1]}`, { def: RAMP_NS, rotation: RAMP_DOWN_ROT[run.dir], level: topLevel - 1 - i });
+    claimed.add(`${c[0]},${c[1]}`);
+  }
+  // Margin on each side so subsequent decorations (TEE/spur) don't land
+  // on a ramp seam.
   const dirVec = run.dir === 'E' ? [1, 0] : run.dir === 'W' ? [-1, 0] : run.dir === 'N' ? [0, -1] : [0, 1];
-  claimed.add(`${up[0] - dirVec[0]!},${up[1] - dirVec[1]!}`);
-  claimed.add(`${dn[0] + dirVec[0]!},${dn[1] + dirVec[1]!}`);
+  const firstRamp = cells[0]!;
+  const lastRamp = cells[totalCells - 1]!;
+  claimed.add(`${firstRamp[0] - dirVec[0]!},${firstRamp[1] - dirVec[1]!}`);
+  claimed.add(`${lastRamp[0] + dirVec[0]!},${lastRamp[1] + dirVec[1]!}`);
+  return { elevCells: [elev] };
 }

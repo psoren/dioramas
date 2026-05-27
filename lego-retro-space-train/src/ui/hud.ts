@@ -21,6 +21,12 @@ export interface HUDOptions {
   /** Optional — adds a 🟦 Grid button that toggles a grid overlay showing
    *  the underlying tile cells. */
   onToggleGrid?: (active: boolean) => void;
+  /** Optional — adds a 🌊 WFC button that rolls a WFC-generated track. */
+  onWFCTrack?: () => void;
+  /** Optional — adds a time-of-day cycler button. Callback receives a
+   *  dayNess value in [0, 1] for fixed-time modes, or `null` to resume the
+   *  automatic day/night cycle. */
+  onTimeOfDay?: (dayNess: number | null) => void;
 }
 
 export function mountHUD(sim: Sim, opts: HUDOptions): void {
@@ -43,6 +49,12 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     : '';
   const gridBtn = opts.onToggleGrid
     ? `<button class="btn" id="btn-grid">🟦 Grid</button>`
+    : '';
+  const wfcBtn = opts.onWFCTrack
+    ? `<button class="btn" id="btn-wfc">🌊 WFC</button>`
+    : '';
+  const todBtn = opts.onTimeOfDay
+    ? `<button class="btn" id="btn-tod">🔄 Cycle</button>`
     : '';
 
   root.innerHTML = `
@@ -69,7 +81,9 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       <button class="btn" id="btn-reset">Reset View</button>
       ${povBtn}
       ${gridBtn}
+      ${todBtn}
       ${randomizeBtn}
+      ${wfcBtn}
     </div>
   `;
 
@@ -115,6 +129,29 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       active = !active;
       btn.classList.toggle('active', active);
       opts.onToggleGrid!(active);
+    });
+  }
+
+  if (opts.onWFCTrack) {
+    const btn = document.getElementById('btn-wfc') as HTMLButtonElement;
+    btn.addEventListener('click', () => opts.onWFCTrack!());
+  }
+
+  if (opts.onTimeOfDay) {
+    const btn = document.getElementById('btn-tod') as HTMLButtonElement;
+    // Cycle through: Auto (null) → Noon (1) → Sunset (0.35) → Night (0.05) → Sunrise (0.45)
+    const modes: Array<{ label: string; dayNess: number | null }> = [
+      { label: '🔄 Cycle',   dayNess: null },
+      { label: '☀️ Noon',    dayNess: 1.0 },
+      { label: '🌇 Sunset',  dayNess: 0.35 },
+      { label: '🌙 Night',   dayNess: 0.05 },
+      { label: '🌅 Sunrise', dayNess: 0.45 },
+    ];
+    let idx = 0;
+    btn.addEventListener('click', () => {
+      idx = (idx + 1) % modes.length;
+      btn.textContent = modes[idx]!.label;
+      opts.onTimeOfDay!(modes[idx]!.dayNess);
     });
   }
 

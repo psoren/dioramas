@@ -54,18 +54,37 @@ export class DayNightCycle implements Entity {
   readonly object3d = new THREE.Group();
   private phase = 0;
   private readonly lights: StandardLights;
+  /** When non-null, the cycle is locked to this dayNess (0..1) and the
+   *  phase no longer advances. Set via {@link lockTo}; clear with
+   *  `lockTo(null)` to resume the auto cycle. */
+  private locked: number | null = null;
 
   constructor(private readonly sim: Sim, startPhase = 0) {
     this.phase = startPhase;
     this.lights = findStandardLights(sim.scene);
   }
 
+  /** Pin the scene to a fixed time-of-day. Pass null to resume cycling. */
+  lockTo(dayNess: number | null): void {
+    this.locked = dayNess === null ? null : Math.max(0, Math.min(1, dayNess));
+    if (this.locked !== null) this.applyDayNess(this.locked);
+  }
+
   update(dt: number): void {
+    if (this.locked !== null) {
+      // Even when locked, keep applying so a fresh scene/entity is lit
+      // correctly. Cheap enough every frame.
+      this.applyDayNess(this.locked);
+      return;
+    }
     if (dt <= 0) return;
     this.phase = (this.phase + dt / CYCLE_SECONDS) % 1;
     const dayNess = 0.5 + 0.5 * Math.cos(this.phase * Math.PI * 2);
+    this.applyDayNess(dayNess);
+  }
+
+  private applyDayNess(dayNess: number): void {
     lerpDayNight(this.sim.scene, this.sim.renderer, this.lights, NIGHT, DAY, dayNess);
-    // Broadcast to any entity that wants to react.
     worldState.dayNess = dayNess;
     worldState.sunDir.copy(NIGHT.sunDir).lerp(DAY.sunDir, dayNess).normalize();
   }

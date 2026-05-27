@@ -18,17 +18,32 @@ import {
   rotateDir,
 } from './trackTile';
 
-/** Y-coordinate of a given port on a placed tile (in local cell coords).
+/** Y-coordinate of a given port on a placed tile (world Y).
  *  - ELEVATED_STRAIGHT_NS: all ports at RAMP_HEIGHT
  *  - RAMP_NS: base N port at 0, base S port at RAMP_HEIGHT (rotated)
- *  - everything else: 0 */
+ *  - everything else: 0
+ *  Then add `level * RAMP_HEIGHT` for the tile's elevation (so stacked
+ *  multi-level layouts report correct port Ys). */
 export function portY(tile: PlacedTile, effectivePort: Direction): number {
-  if (tile.def.kind === 'elevated-straight-ns') return RAMP_HEIGHT;
+  const yLift = (tile.level ?? 0) * RAMP_HEIGHT;
+  if (tile.def.kind === 'elevated-straight-ns' || tile.def.kind === 'elevated-curve-ne') {
+    return RAMP_HEIGHT + yLift;
+  }
   if (tile.def.kind === 'ramp-ns') {
     const basePort = rotateDir(effectivePort, -tile.rotation);
-    return basePort === 'S' ? RAMP_HEIGHT : 0;
+    return (basePort === 'S' ? RAMP_HEIGHT : 0) + yLift;
   }
-  return 0;
+  if (tile.def.kind === 'ramp-ns-tall') {
+    const basePort = rotateDir(effectivePort, -tile.rotation);
+    return (basePort === 'S' ? 2 * RAMP_HEIGHT : 0) + yLift;
+  }
+  if (tile.def.kind === 'under-pass-nesw') {
+    // Base ports: N=ground (0), E=elevated (H), S=ground (0), W=elevated (H).
+    // So elevated ports are the E-W pair, ground ports are the N-S pair.
+    const basePort = rotateDir(effectivePort, -tile.rotation);
+    return (basePort === 'E' || basePort === 'W' ? RAMP_HEIGHT : 0) + yLift;
+  }
+  return yLift;
 }
 
 /** Does this tile have AT LEAST ONE port whose Y is approximately atY? */
@@ -89,27 +104,40 @@ export class TrackLayout {
     def: TrackTileDef,
     rotation: Rotation,
     routing?: Map<Direction, Direction>,
+    level?: number,
   ): PlacedTile {
-    const tile: PlacedTile = { gridX: gx, gridZ: gz, def, rotation, routing };
+    const tile: PlacedTile = { gridX: gx, gridZ: gz, def, rotation, routing, level };
     this.cells.set(key(gx, gz), tile);
     return tile;
   }
 
-  /** Place a ground-level tile UNDER an elevated cell (for under-passes). */
+  /** Place a tile UNDER an elevated cell (for under-passes). Pass `level`
+   *  to stack the under-tile at a non-ground Y (e.g. level=1 makes the
+   *  "under" layer sit at y=RAMP_HEIGHT — used for a level-1-under-
+   *  level-2 crossing). */
   placeUnder(
     gx: number,
     gz: number,
     def: TrackTileDef,
     rotation: Rotation,
     routing?: Map<Direction, Direction>,
+    level?: number,
   ): PlacedTile {
-    const tile: PlacedTile = { gridX: gx, gridZ: gz, def, rotation, routing };
+    const tile: PlacedTile = { gridX: gx, gridZ: gz, def, rotation, routing, level };
     this.underCells.set(key(gx, gz), tile);
     return tile;
   }
 
   get(gx: number, gz: number): PlacedTile | undefined {
     return this.cells.get(key(gx, gz));
+  }
+
+  /** Remove all tiles at the cell (both primary and under-tile). Used
+   *  by post-WFC clean-up that prunes orphan tiles outside the main
+   *  connected component. */
+  remove(gx: number, gz: number): void {
+    this.cells.delete(key(gx, gz));
+    this.underCells.delete(key(gx, gz));
   }
 
   getUnder(gx: number, gz: number): PlacedTile | undefined {
@@ -363,7 +391,7 @@ function pickStraightOrCurve(entry: Direction, exit: Direction): { def: TrackTil
  *  ensuring the override's ports match the (entry, exit) at that cell —
  *  used e.g. by the ramp loop template to substitute RAMP_NS for a
  *  straight on specific edge cells. */
-export type PolygonOverrides = ReadonlyMap<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction> }>;
+export type PolygonOverrides = ReadonlyMap<string, { def: TrackTileDef; rotation: Rotation; routing?: Map<Direction, Direction>; level?: number }>;
 
 export function placePolygonLoop(
   layout: TrackLayout,
@@ -402,7 +430,7 @@ export function placePolygonLoop(
       // because the override doesn't carry multi-routing — fall through to
       // CROSS handling if both apply.
       if (info.visits.length === 1) {
-        layout.place(info.gx, info.gz, override.def, override.rotation, override.routing);
+        layout.place(info.gx, info.gz, override.def, override.rotation, override.routing, override.level);
         continue;
       }
     }

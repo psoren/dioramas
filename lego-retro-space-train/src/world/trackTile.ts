@@ -94,12 +94,12 @@ export const STRAIGHT_NS: TrackTileDef = {
 };
 
 // --- Ramp tile: N <-> S, low N (y=0) → high S (y=RAMP_HEIGHT) -----------
-// XZ is a straight line; Y uses a cosine ease so the slope is ZERO at both
-// boundaries. That makes the bridge profile (ground → ramp → elevated →
-// ramp → ground) C¹-continuous: the train pitches smoothly into and out
-// of the ramp instead of hinge-jumping at each cell seam. Midpoint slope
-// is steeper than linear (π·RAMP_HEIGHT/(2·TILE_SIZE) ≈ 33° for the
-// stock 1.0/2.4 ratio) — accepted as the cost of removing the seams.
+// XZ is a straight line; Y is LINEAR within the tile. Smoothness at cell
+// boundaries comes from the graph-builder's run-aware sampler, which
+// detects sequences of consecutive ramp cells and replaces the linear
+// per-cell Y with a single cosine S-curve over the whole run. This way
+// stacking N ramp cells produces ONE smooth ease (not N small ones with
+// "wave" seams), and a single-cell ramp matches the previous cosine ease.
 export const RAMP_NS: TrackTileDef = {
   kind: 'ramp-ns',
   basePorts: ['N', 'S'],
@@ -107,18 +107,41 @@ export const RAMP_NS: TrackTileDef = {
     requirePair(this, from, to);
     const a = portPos(from);
     const b = portPos(to);
-    const yLow = 0;
-    const yHigh = RAMP_HEIGHT;
-    // Caller picks direction via `from`; cosine ease produces zero slope
-    // at both ends regardless of direction.
+    if (from === 'S') a.y = RAMP_HEIGHT;
+    if (to === 'S') b.y = RAMP_HEIGHT;
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+    }
+    return pts;
+  },
+};
+
+// --- Tall ramp: N <-> S, low N (y=0) → high S (y=2*RAMP_HEIGHT). -------
+// Climbs TWO levels in one cell. Steep (≈49° at midpoint) but allowed —
+// lets the train go directly from ground to level 2 without an
+// intermediate level-1 elevated section, opening up shorter bridge
+// configurations than the 7-cell stepped climb. Cosine ease per cell so
+// the slope is zero at both ports (not part of the multi-cell ramp-run
+// sampler — that's only for regular RAMP_NS).
+export const RAMP_NS_TALL: TrackTileDef = {
+  kind: 'ramp-ns-tall',
+  basePorts: ['N', 'S'],
+  samplePath(from, to, samples) {
+    requirePair(this, from, to);
+    const a = portPos(from);
+    const b = portPos(to);
+    if (from === 'S') a.y = 2 * RAMP_HEIGHT;
+    if (to === 'S') b.y = 2 * RAMP_HEIGHT;
     const aHigh = from === 'S';
     const pts: THREE.Vector3[] = [];
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
-      const eased = (1 - Math.cos(Math.PI * t)) / 2; // 0→1 with slope 0 at ends
+      const eased = (1 - Math.cos(Math.PI * t)) / 2;
       const y = aHigh
-        ? yHigh + (yLow - yHigh) * eased
-        : yLow + (yHigh - yLow) * eased;
+        ? 2 * RAMP_HEIGHT + (0 - 2 * RAMP_HEIGHT) * eased
+        : 0 + (2 * RAMP_HEIGHT - 0) * eased;
       const p = new THREE.Vector3().lerpVectors(a, b, t);
       p.y = y;
       pts.push(p);
@@ -142,6 +165,79 @@ export const ELEVATED_STRAIGHT_NS: TrackTileDef = {
       pts.push(new THREE.Vector3().lerpVectors(a, b, t));
     }
     return pts;
+  },
+};
+
+// --- Elevated curve: N <-> E quarter arc, both ports at y=RAMP_HEIGHT --
+// Same shape as CURVE_NE but elevated, so bridges can TURN at height
+// (not just run in straight spans). Needed for WFC layouts where the
+// solver wants an L-shaped or U-shaped elevated section.
+export const ELEVATED_CURVE_NE: TrackTileDef = {
+  kind: 'elevated-curve-ne',
+  basePorts: ['N', 'E'],
+  samplePath(from, to, samples) {
+    requirePair(this, from, to);
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const theta = (t * Math.PI) / 2;
+      const x = HALF - HALF * Math.cos(theta);
+      const z = -HALF + HALF * Math.sin(theta);
+      pts.push(new THREE.Vector3(x, RAMP_HEIGHT, z));
+    }
+    if (from === 'E' && to === 'N') pts.reverse();
+    return pts;
+  },
+};
+
+// --- Empty tile: 0 ports, no traversal ---------------------------------
+// Used by WFC to leave a cell blank. Never actually rendered as a tile;
+// the layout simply doesn't place anything when WFC picks EMPTY for a
+// cell. Has zero ports, so its adjacency rule on every side is "the
+// neighbour must also have no port on the shared boundary."
+export const EMPTY_TILE: TrackTileDef = {
+  kind: 'empty',
+  basePorts: [],
+  samplePath() {
+    return [];
+  },
+};
+
+// --- Under-pass: 4 ports, but 2 elevated + 2 ground. ------------------
+// A WFC-virtual tile: the solver picks it whenever a cell should host BOTH
+// an elevated bridge passing through one axis AND a ground track passing
+// through the perpendicular axis at the same XZ. At layout-conversion
+// time the wfcGenerator decomposes it into an ELEVATED_STRAIGHT_NS
+// primary tile + a STRAIGHT_NS under-tile (using existing infrastructure
+// for stacked cells), so the graph builder and renderer never see this
+// tile directly. samplePath therefore throws — it should never be called.
+//
+// Base orientation (rotation 0): N at y=0, E at y=RAMP_HEIGHT, S at y=0,
+// W at y=RAMP_HEIGHT. I.e. elevated runs E-W, ground runs N-S.
+export const UNDER_PASS_NESW: TrackTileDef = {
+  kind: 'under-pass-nesw',
+  basePorts: ['N', 'E', 'S', 'W'],
+  samplePath() {
+    throw new Error('UNDER_PASS is a WFC-virtual tile; decompose before placement');
+  },
+};
+
+// --- Station: 1 port, dead-end. Buffer stop on the far side. ----------
+// Lets WFC place stations naturally inside the grid (a STATION_N tile
+// has a port on its N side and no ports on E/S/W, so WFC's adjacency
+// rule forces the N neighbour to also have a south-facing port at y=0
+// while the other 3 sides are EMPTY-compatible). The graph builder
+// treats a STATION cell as a 1-edge graph node automatically.
+//
+// samplePath isn't meaningful for a 1-port tile (no port pair exists),
+// so it throws — the graph builder only uses appendJunctionHalf for
+// station cells, which builds a straight line from cell centre to the
+// single port boundary.
+export const STATION_N: TrackTileDef = {
+  kind: 'station-n',
+  basePorts: ['N'],
+  samplePath() {
+    throw new Error('STATION tile has only 1 port; samplePath not applicable');
   },
 };
 
@@ -248,7 +344,8 @@ function requirePair(def: TrackTileDef, from: Direction, to: Direction): void {
 }
 
 export const ALL_TILES: readonly TrackTileDef[] = [
-  STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW, RAMP_NS, ELEVATED_STRAIGHT_NS,
+  STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW, RAMP_NS, RAMP_NS_TALL,
+  ELEVATED_STRAIGHT_NS, ELEVATED_CURVE_NE, STATION_N, UNDER_PASS_NESW,
 ];
 
 // --- Placed tile + helpers ----------------------------------------------
@@ -262,6 +359,15 @@ export interface PlacedTile {
    *  to decide which exit a train takes when it enters via a given port.
    *  Absent for 2-port tiles (only one possible exit). */
   routing?: Map<Direction, Direction>;
+  /** Vertical lift in RAMP_HEIGHT units added to every Y in the tile's
+   *  samplePath output. Used to stack ELEVATED tiles at level 2, 3, etc.
+   *  and to chain RAMPs into multi-level climbs:
+   *   - level=0: tile sits at its default elevation (ELEVATED at y=H, ramps
+   *     climbing 0→H, ground tiles at y=0). Equivalent to undefined.
+   *   - level=1: everything shifted up by RAMP_HEIGHT. ELEVATED at 2H,
+   *     ramp climbing H→2H.
+   *   - level=N: shifted up by N*RAMP_HEIGHT. */
+  level?: number;
 }
 
 /** A placed tile's actual world-space ports (rotated + translated). */
@@ -286,9 +392,10 @@ export function sampleWorldPath(
   const cellZ = tile.gridZ * TILE_SIZE;
   const cos = Math.cos((tile.rotation * Math.PI) / 2);
   const sin = Math.sin((tile.rotation * Math.PI) / 2);
+  const yLift = (tile.level ?? 0) * RAMP_HEIGHT;
   return local.map((p) => {
     const x = p.x * cos + p.z * sin;
     const z = -p.x * sin + p.z * cos;
-    return new THREE.Vector3(cellX + x, p.y, cellZ + z);
+    return new THREE.Vector3(cellX + x, p.y + yLift, cellZ + z);
   });
 }
