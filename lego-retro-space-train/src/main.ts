@@ -163,7 +163,12 @@ function placeTrackOnGraph(
   console.log(`track deck color: #${deckColor.toString(16).padStart(6, '0')}`);
   const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0], deckColor }));
   randomEntities.push(track);
-  const targets = stations.filter((s) => s.edges.length >= 2);
+  const throughStations = stations.filter((s) => s.edges.length >= 2);
+  // Use the Eulerian tour as the train's target cycle so it actually
+  // walks every edge instead of bouncing between 2-6 stations on
+  // overlapping shortest paths. Coverage probe goes ~53% → ~70%+.
+  const tour = graph.eulerianTour();
+  const targets = tour.length >= 2 ? tour : throughStations;
   if (targets.length >= 2) {
     const train = sim.add(new GraphTrain({
       graph,
@@ -191,7 +196,9 @@ function placeTrackOnGraph(
       const through = elevated.stations.filter((s) => s.edges.length >= 2);
       if (through.length >= 2) {
         elevatedGraph = elevated.graph;
-        elevatedTargets = through;
+        // Same Eulerian-tour treatment for the elevated train.
+        const elevTour = elevated.graph.eulerianTour();
+        elevatedTargets = elevTour.length >= 2 ? elevTour : through;
       }
     } catch (err) {
       console.warn('elevated graph build failed; train 2 falls back to ground', err);

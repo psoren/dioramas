@@ -61,12 +61,12 @@ describe('render WFC batch', () => {
           const isPrimaryElevated = t.def.kind === 'elevated-straight-ns' || t.def.kind === 'elevated-curve-ne';
           if (isPrimaryElevated && t.rotation === under.rotation) parallel++;
         }
-        // Coverage: walk what the trains ACTUALLY ride. The cycle visits
-        // every through-station; shortest paths between consecutive
-        // targets are summed. (Adding junctions made coverage WORSE
-        // because each leg shrinks and overlaps with adjacent legs.)
-        const groundTargets = result.stations.filter((st) => st.edges.length >= 2);
-        const groundCovered = trainCycleCells(result.graph, groundTargets);
+        // Coverage: walk the Eulerian tour (Hierholzer + greedy odd-
+        // pair duplication). Visits every graph edge at least once,
+        // so coverage approaches 100%. This is what the train will
+        // also use as its targetCycle.
+        const groundTour = result.graph.eulerianTour();
+        const groundCovered = trainCycleCells(result.graph, groundTour);
         let elevatedOK = false;
         let elevatedThrough = 0;
         let elevatedErr: string | undefined;
@@ -76,7 +76,10 @@ describe('render WFC batch', () => {
           const through = elev.stations.filter((st) => st.edges.length >= 2);
           elevatedThrough = through.length;
           elevatedOK = through.length >= 2;
-          if (elevatedOK) elevatedCovered = trainCycleCells(elev.graph, through);
+          if (elevatedOK) {
+            const elevTour = elev.graph.eulerianTour();
+            elevatedCovered = trainCycleCells(elev.graph, elevTour);
+          }
         } catch (e) {
           elevatedErr = (e as Error).message.slice(0, 120);
         }

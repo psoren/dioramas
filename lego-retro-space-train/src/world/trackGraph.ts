@@ -176,6 +176,87 @@ export class TrackGraph {
     return path;
   }
 
+  /** Compute an Eulerian-style tour that visits every edge at least
+   *  once. Used to drive a train so coverage approaches 100% — instead
+   *  of bouncing between a few stations on shortest paths (which leaves
+   *  most edges unvisited), the train walks the tour node-by-node and
+   *  hits every edge.
+   *
+   *  Algorithm: standard Chinese-postman heuristic.
+   *    1. Find odd-degree nodes. (For Eulerian circuit they all need to
+   *       be even-degree.)
+   *    2. Greedy-pair them by shortest-path distance and duplicate the
+   *       edges on each pairing's path → multigraph where every node
+   *       has even degree.
+   *    3. Hierholzer's algorithm: walk edges, marking each visit. When
+   *       no unvisited edge from current node, pop into the tour.
+   *
+   *  Returns a list of nodes in visitation order. Consecutive nodes in
+   *  the returned list are always directly edge-connected, so passing
+   *  it as a train's targetCycle makes the train walk edge-by-edge. */
+  eulerianTour(): GraphNode[] {
+    if (this.nodes.length === 0) return [];
+    // Multigraph adjacency, keyed by unique edge-instance id so
+    // duplicate edges are distinguishable for visited-tracking.
+    interface MEdge { id: number; to: GraphNode; }
+    let nextId = 0;
+    const adj = new Map<GraphNode, MEdge[]>();
+    for (const n of this.nodes) adj.set(n, []);
+    const addBoth = (from: GraphNode, to: GraphNode) => {
+      const id = nextId++;
+      adj.get(from)!.push({ id, to });
+      adj.get(to)!.push({ id, to: from });
+    };
+    for (const e of this.edges) addBoth(e.from, e.to);
+    // Pair odd-degree nodes greedily by hop distance.
+    const remaining = new Set(this.nodes.filter((n) => adj.get(n)!.length % 2 === 1));
+    while (remaining.size >= 2) {
+      const arr = [...remaining];
+      const a = arr[0]!;
+      let bestB: GraphNode | null = null;
+      let bestPath: GraphEdge[] | null = null;
+      for (let i = 1; i < arr.length; i++) {
+        const path = this.shortestPath(a, arr[i]!);
+        if (path && (!bestPath || path.length < bestPath.length)) {
+          bestB = arr[i]!;
+          bestPath = path;
+        }
+      }
+      if (!bestB || !bestPath) break;
+      // Duplicate every edge on the pair's shortest path.
+      let cur: GraphNode = a;
+      for (const e of bestPath) {
+        const next = e.from === cur ? e.to : e.from;
+        addBoth(cur, next);
+        cur = next;
+      }
+      remaining.delete(a);
+      remaining.delete(bestB);
+    }
+    // Hierholzer's algorithm starting from any non-isolated node.
+    const start = this.nodes.find((n) => adj.get(n)!.length > 0);
+    if (!start) return [];
+    const visited = new Set<number>();
+    const stack: GraphNode[] = [start];
+    const tour: GraphNode[] = [];
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1]!;
+      const out = adj.get(top)!;
+      let pick: MEdge | null = null;
+      for (const e of out) {
+        if (!visited.has(e.id)) { pick = e; break; }
+      }
+      if (pick) {
+        visited.add(pick.id);
+        stack.push(pick.to);
+      } else {
+        tour.push(top);
+        stack.pop();
+      }
+    }
+    return tour.reverse();
+  }
+
   /** Find a node by its grid cell. Returns the first node found (any cell
    *  can host multiple sub-nodes for TEEs). Use `subNodesAt` to enumerate. */
   nodeAt(gridX: number, gridZ: number): GraphNode | null {
