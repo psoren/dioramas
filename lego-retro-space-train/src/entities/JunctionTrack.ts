@@ -124,22 +124,36 @@ export class JunctionTrack implements Entity {
       const horizontalTrack = tile.rotation === 1 || tile.rotation === 3;
       const alongX = horizontalTrack ? 1 : 0;
       const alongZ = horizontalTrack ? 0 : 1;
+      // PERPENDICULAR to the upper track. Used when the cell has a
+      // lower-layer track running the SAME direction (parallel overpass)
+      // — sideways pillars don't sit on the lower track.
+      const acrossX = horizontalTrack ? 0 : 1;
+      const acrossZ = horizontalTrack ? 1 : 0;
       const spacing = TILE_SIZE * 0.4;
       const totalHeight = (1 + (tile.level ?? 0)) * RAMP_HEIGHT;
       const pillarGeo = new THREE.BoxGeometry(0.16, totalHeight, 0.16);
-      // For elevated curves we place a single centre pillar (the curve
-      // arc doesn't have a clean "along-direction" pair). For straights
-      // we keep the two-pillar pattern so a perpendicular train passes
-      // between them.
-      const offsets: ReadonlyArray<readonly [number, number]> = isElevatedCurve
-        ? [[0, 0]]
-        : [[-1, -1], [1, 1]];
+      // Detect parallel-overpass cell: under-tile present at the SAME
+      // rotation as the primary. (Under-pass cells have PERPENDICULAR
+      // rotations, which is fine for along-track pillars.)
+      const under = this.graph.layout.getUnder(tile.gridX, tile.gridZ);
+      const isParallelOverpass = !!under && under.rotation === tile.rotation;
+      // Straight (non-parallel): pillars along the track so a crossing
+      // train passes between them.
+      // Straight (parallel):     pillars at the SIDES so the lower
+      //                          track passes between them lengthwise.
+      // Curve: single centre pillar (no clean along/across direction).
+      const useAlong = isElevatedStraight && !isParallelOverpass;
+      const useAcross = isElevatedStraight && isParallelOverpass;
+      const offsetsPair: ReadonlyArray<readonly [number, number]> = [[-1, -1], [1, 1]];
+      const offsets = useAlong || useAcross ? offsetsPair : [[0, 0]];
       for (const [signX, signZ] of offsets) {
+        const offX = useAcross ? signX * acrossX : signX * alongX;
+        const offZ = useAcross ? signZ * acrossZ : signZ * alongZ;
         const pillar = new THREE.Mesh(pillarGeo, pillarMat);
         pillar.position.set(
-          cx + signX * alongX * spacing,
+          cx + offX * spacing,
           totalHeight / 2,
-          cz + signZ * alongZ * spacing,
+          cz + offZ * spacing,
         );
         pillar.castShadow = true;
         pillar.receiveShadow = true;
