@@ -174,6 +174,12 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
       // had subtle multi-level mismatches. The filter is the simplest
       // way to guarantee a buildGraphFromLayout-safe layout.
       keepOnlyLargestComponent(layout);
+      // After dropping non-largest components, the kept blob's boundary
+      // tiles may have ports facing into dropped (now-empty) cells —
+      // visible as "tendrils" sticking off the network. Iteratively
+      // trim cells whose ports don't all match a neighbour. 1-port
+      // STATION tiles are exempt (their port IS the station's stub).
+      trimDeadEnds(layout);
       const tiles = layout.tiles();
       if (tiles.length < 4) { bump('too-sparse-after-component-filter'); continue; }
 
@@ -340,6 +346,70 @@ function portYInLayout(t: PlacedTile, p: 'N' | 'E' | 'S' | 'W'): number {
  *  This is how we ship a single-network layout from a WFC output that
  *  technically satisfies local rules but produced multiple disconnected
  *  blobs. */
+/** Iteratively remove tiles whose ports don't all connect to a
+ *  neighbour at matching Y. STATION_N tiles (1-port intentional
+ *  dead-end) are exempt. After a tile is removed, neighbours that
+ *  pointed INTO it become new dead-ends and are re-evaluated on the
+ *  next pass — propagates inward until the layout stabilises with no
+ *  tendrils. */
+function trimDeadEnds(layout: TrackLayout): void {
+  for (let pass = 0; pass < 100; pass++) {
+    const toRemove: PlacedTile[] = [];
+    for (const tile of layout.tiles()) {
+      // Stations are intentional dead-ends.
+      if (tile.def.kind === 'station-n') continue;
+      const isPrimary = layout.get(tile.gridX, tile.gridZ) === tile;
+      const ports = effectivePorts(tile);
+      for (const port of ports) {
+        const [dx, dz] = dirVector(port);
+        const nx = tile.gridX + dx;
+        const nz = tile.gridZ + dz;
+        const wantY = portYInLayout(tile, port);
+        const wantOpp = opposite(port);
+        // Look for ANY tile in the neighbour cell whose `wantOpp` port
+        // sits at `wantY`. If none, this port is a dead-end.
+        const primary = layout.get(nx, nz);
+        const under = layout.getUnder(nx, nz);
+        const matches = (cand: PlacedTile | undefined): boolean => {
+          if (!cand) return false;
+          const candPorts = effectivePorts(cand);
+          if (!candPorts.includes(wantOpp)) return false;
+          return Math.abs(portYInLayout(cand, wantOpp) - wantY) < 0.01;
+        };
+        if (!matches(primary) && !matches(under)) {
+          toRemove.push(tile);
+          break;
+        }
+      }
+      void isPrimary;
+    }
+    if (toRemove.length === 0) return;
+    for (const t of toRemove) {
+      const primary = layout.get(t.gridX, t.gridZ);
+      const under = layout.getUnder(t.gridX, t.gridZ);
+      if (primary === t) {
+        // If under exists and is keepable, stash + restore so we don't
+        // wipe the under-tile together with the primary.
+        if (under) {
+          const stash = under;
+          layout.remove(t.gridX, t.gridZ);
+          layout.placeUnder(t.gridX, t.gridZ, stash.def, stash.rotation, stash.routing, stash.level);
+        } else {
+          layout.remove(t.gridX, t.gridZ);
+        }
+      } else if (under === t) {
+        if (primary) {
+          const stash = primary;
+          layout.remove(t.gridX, t.gridZ);
+          layout.place(t.gridX, t.gridZ, stash.def, stash.rotation, stash.routing, stash.level);
+        } else {
+          layout.remove(t.gridX, t.gridZ);
+        }
+      }
+    }
+  }
+}
+
 function keepOnlyLargestComponent(layout: TrackLayout): void {
   const tiles = layout.tiles();
   if (tiles.length <= 1) return;
