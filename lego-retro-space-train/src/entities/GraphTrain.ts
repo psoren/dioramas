@@ -173,7 +173,7 @@ export class GraphTrain implements Entity {
    *  the same route. (BFS by edge count gives ties; we break them here.) */
   private pickBestEdge(from: GraphNode, target: GraphNode): GraphEdge | null {
     // Score each outgoing edge by BFS distance from the OTHER endpoint to
-    // target. Pick among the minimum scores randomly.
+    // target. Pick uniformly among min-distance edges.
     const scored: Array<{ edge: GraphEdge; dist: number }> = [];
     for (const e of from.edges) {
       const other = e.from === from ? e.to : e.from;

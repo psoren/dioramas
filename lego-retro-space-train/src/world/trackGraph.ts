@@ -25,7 +25,8 @@ export type NodeKind = 'junction' | 'station';
 export interface GraphNode {
   id: string;
   kind: NodeKind;
-  /** World-space position (cell centre). */
+  /** World-space position. Cell centre for normal junctions/stations; main-
+   *  port boundary for TEE sub-nodes. */
   pos: THREE.Vector3;
   /** Grid cell this node sits on. */
   gridX: number;
@@ -34,6 +35,12 @@ export interface GraphNode {
   edges: GraphEdge[];
   /** Display label (used by stations). */
   label?: string;
+  /** For TEE sub-nodes only: the main port direction this sub-node sits at.
+   *  TEE cells get split into 2 graph nodes (one per main port) so that
+   *  branch edges can use a clean in-cell quarter arc (main-port boundary →
+   *  lone-port boundary) instead of a centre-to-boundary bezier that bulges
+   *  perpendicular to the train's motion. */
+  mainSide?: Direction;
 }
 
 export interface GraphEdge {
@@ -41,10 +48,10 @@ export interface GraphEdge {
   from: GraphNode;
   to: GraphNode;
   /** Single continuous centerline curve, FROM (t=0) → TO (t=1). Includes
-   *  the half-tile at each junction (straight for main ports, a smooth
-   *  bezier for branch / lone ports — so a TEE renders as one straight
-   *  rail through plus one curving turnout, both as parts of edge curves
-   *  rather than overlapping per-junction strips). */
+   *  the in-cell path at each junction (straight half-tile for non-TEE
+   *  nodes; in-cell quarter arc for TEE sub-nodes exiting via the lone
+   *  port; zero-length when a TEE sub-node exits via its own main port,
+   *  since the sub-node is already at the boundary). */
   curve: THREE.CatmullRomCurve3;
   /** Cached length so we don't recompute every frame. */
   length: number;
@@ -68,7 +75,13 @@ export class TrackGraph {
     this.layout = layout;
   }
 
-  addNode(kind: NodeKind, gridX: number, gridZ: number, label?: string): GraphNode {
+  addNode(
+    kind: NodeKind,
+    gridX: number,
+    gridZ: number,
+    label?: string,
+    mainSide?: Direction,
+  ): GraphNode {
     // Determine cell-centre Y from the underlying tile. Stations placed on
     // elevated tiles sit at RAMP_HEIGHT; ramp-centres are midway. Anything
     // else (flat tiles, no tile yet) is at Y=0.
@@ -78,14 +91,25 @@ export class TrackGraph {
       if (tile.def.kind === 'elevated-straight-ns') y = RAMP_HEIGHT;
       else if (tile.def.kind === 'ramp-ns') y = RAMP_HEIGHT / 2;
     }
+    let px = gridX * TILE_SIZE;
+    let pz = gridZ * TILE_SIZE;
+    if (mainSide) {
+      // TEE sub-node: sit at the main-port boundary (cell centre + half-tile
+      // offset toward the main port). Lets in-cell branch curves be a clean
+      // quarter arc instead of a centre-anchored bezier.
+      const [mdx, mdz] = dirVector(mainSide);
+      px += (mdx * TILE_SIZE) / 2;
+      pz += (mdz * TILE_SIZE) / 2;
+    }
     const node: GraphNode = {
-      id: `${kind}-${this.nodeCounter++}`,
+      id: `${kind}-${this.nodeCounter++}${mainSide ? `:${mainSide}` : ''}`,
       kind,
-      pos: new THREE.Vector3(gridX * TILE_SIZE, y, gridZ * TILE_SIZE),
+      pos: new THREE.Vector3(px, y, pz),
       gridX,
       gridZ,
       edges: [],
       label,
+      mainSide,
     };
     this.nodes.push(node);
     return node;
@@ -146,12 +170,18 @@ export class TrackGraph {
     return path;
   }
 
-  /** Find a node by its grid cell, or null if no node sits there. */
+  /** Find a node by its grid cell. Returns the first node found (any cell
+   *  can host multiple sub-nodes for TEEs). Use `subNodesAt` to enumerate. */
   nodeAt(gridX: number, gridZ: number): GraphNode | null {
     for (const node of this.nodes) {
       if (node.gridX === gridX && node.gridZ === gridZ) return node;
     }
     return null;
+  }
+
+  /** All nodes at the given grid cell. 0, 1, or 2 (for TEEs). */
+  subNodesAt(gridX: number, gridZ: number): GraphNode[] {
+    return this.nodes.filter((n) => n.gridX === gridX && n.gridZ === gridZ);
   }
 }
 
@@ -175,35 +205,108 @@ export function buildGraphFromLayout(
 ): TrackGraph {
   const graph = new TrackGraph(layout);
   const junctionSet = new Set<string>();
+
+  // Phase 1: create nodes. TEE cells (3 ports with 2 main + 1 lone) get split
+  // into TWO sub-nodes at their main-port boundaries; everything else gets
+  // one node at the cell centre.
   for (const j of junctionCells) {
     junctionSet.add(`${j.gx},${j.gz}`);
-    graph.addNode(j.kind, j.gx, j.gz, j.label);
+    const tile = layout.get(j.gx, j.gz);
+    if (!tile) throw new Error(`junction cell (${j.gx},${j.gz}) has no tile`);
+    const ports = effectivePorts(tile);
+    const mains = mainPortsOf(ports);
+    const isTEE = ports.length === 3 && mains.length === 2;
+    if (isTEE) {
+      const subs: GraphNode[] = [];
+      for (const m of mains) {
+        subs.push(graph.addNode(j.kind, j.gx, j.gz, j.label, m));
+      }
+      // Main-through edge inside the TEE cell: straight from one main-port
+      // boundary to the other through the cell centre.
+      const curve = buildStraightCurve(subs[0]!.pos, subs[1]!.pos);
+      graph.addEdge(subs[0]!, subs[1]!, curve, [], mains[1]!, mains[0]!);
+    } else {
+      graph.addNode(j.kind, j.gx, j.gz, j.label);
+    }
   }
-  // Avoid producing each edge twice (once from each endpoint).
+
+  // Phase 2: cross-cell edges. Iterate by port; the trace dedupes via
+  // visitedPort so the same physical path isn't built twice. For TEE
+  // lone ports we expand to source × destination sub-node combos so the
+  // train sees a separate edge per "which sub-node am I at" pairing.
   const visitedPort = new Set<string>(); // "gx,gz:dir"
-  for (const node of graph.nodes) {
-    const tile = layout.get(node.gridX, node.gridZ);
-    if (!tile) throw new Error(`junction cell (${node.gridX},${node.gridZ}) has no tile`);
+  for (const cellKey of Array.from(junctionSet)) {
+    const [gxStr, gzStr] = cellKey.split(',');
+    const gx = Number(gxStr);
+    const gz = Number(gzStr);
+    const tile = layout.get(gx, gz);
+    if (!tile) throw new Error(`junction cell (${gx},${gz}) has no tile`);
     const ports = effectivePorts(tile);
     for (const port of ports) {
-      const key = `${node.gridX},${node.gridZ}:${port}`;
+      const key = `${gx},${gz}:${port}`;
       if (visitedPort.has(key)) continue;
       visitedPort.add(key);
       // Dead-end check: if the cell beyond this port has no tile, this port
-      // doesn't lead to anything (e.g. a station at the end of a spur). Skip
-      // — the port is a buffer/terminator. The node ends up with one fewer
-      // incident edge.
+      // is a buffer/terminator (e.g. station at the end of a spur). Skip.
       const [pdx, pdz] = dirVector(port);
-      if (!layout.get(node.gridX + pdx, node.gridZ + pdz)) continue;
-      const traced = traceEdgeFromPort(layout, node.gridX, node.gridZ, port, junctionSet);
+      if (!layout.get(gx + pdx, gz + pdz)) continue;
+      const traced = traceEdgeFromPort(layout, gx, gz, port, junctionSet);
       visitedPort.add(`${traced.toGx},${traced.toGz}:${traced.toEntry}`);
-      const toNode = graph.nodeAt(traced.toGx, traced.toGz);
-      if (!toNode) throw new Error(`edge endpoint (${traced.toGx},${traced.toGz}) is not a registered node`);
-      const curve = buildEdgeCurve(layout, node, port, toNode, traced.toEntry, traced.midCells);
-      graph.addEdge(node, toNode, curve, traced.midCells, port, traced.toEntry);
+
+      const fromSubs = subNodesUsingPort(graph, gx, gz, port);
+      const toSubs = subNodesUsingPort(graph, traced.toGx, traced.toGz, traced.toEntry);
+      if (fromSubs.length === 0 || toSubs.length === 0) {
+        throw new Error(`edge endpoint (${traced.toGx},${traced.toGz}) is not a registered node`);
+      }
+      for (const fromNode of fromSubs) {
+        for (const toNode of toSubs) {
+          const curve = buildEdgeCurve(
+            layout, fromNode, port, toNode, traced.toEntry, traced.midCells,
+          );
+          graph.addEdge(
+            fromNode, toNode, curve, traced.midCells, port, traced.toEntry,
+          );
+        }
+      }
     }
   }
   return graph;
+}
+
+/** Which sub-node(s) of cell (gx, gz) use the given port.
+ *
+ *  - Non-TEE cell (1 node): always [that node].
+ *  - TEE cell (2 sub-nodes): if `port` is one sub-node's mainSide, return
+ *    only that sub-node. If `port` is the lone port, both sub-nodes can
+ *    use it (one branch curve per sub-node passes through the lone-port
+ *    boundary), so return both.
+ */
+function subNodesUsingPort(graph: TrackGraph, gx: number, gz: number, port: Direction): GraphNode[] {
+  const subs = graph.subNodesAt(gx, gz);
+  if (subs.length <= 1) return subs;
+  const owned = subs.filter((s) => s.mainSide === port);
+  if (owned.length > 0) return owned;
+  // Lone port: any sub-node can reach it via in-cell arc.
+  return subs;
+}
+
+/** Build a straight CatmullRom curve between two world points. */
+function buildStraightCurve(a: THREE.Vector3, b: THREE.Vector3): THREE.CatmullRomCurve3 {
+  const points: THREE.Vector3[] = [];
+  const N = 6;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    points.push(new THREE.Vector3().lerpVectors(a, b, t));
+  }
+  return new THREE.CatmullRomCurve3(points, false, 'centripetal');
+}
+
+/** Among a tile's effective ports, the "main" ports are those whose opposite
+ *  is also in the set (paired through-routes). For a TEE this is the
+ *  through-pair (e.g. N/S for a TEE_NES). For a CROSS, all four. For a
+ *  STRAIGHT both. For a station's single port: empty. */
+function mainPortsOf(ports: readonly Direction[]): Direction[] {
+  return ports.filter((p) => ports.includes(opposite(p)));
 }
 
 /** Walk outward from a junction along the given exit port. Returns the cells
@@ -247,14 +350,27 @@ function traceEdgeFromPort(
   throw new Error('traceEdge did not terminate in 512 steps');
 }
 
-/** Build a single continuous curve from one junction's centre through
- *  all mid cells to the other junction's centre. Junction halves are
- *  straight when the port has its opposite in the tile's port set (a
- *  "main" port — TEE main pair, CROSS, station-on-straight). For a "lone"
- *  port (no opposite in the set — TEE branch), the half-tile is a smooth
- *  cubic bezier tangent to the main axis at the centre and tangent to
- *  the port direction at the boundary. This makes a TEE render as a
- *  realistic turnout (main straight + one curving diverging rail). */
+/** Build a single continuous curve from one node's position through all
+ *  mid cells to the other node's position.
+ *
+ *  Source / destination in-cell geometry depends on the node kind:
+ *
+ *  - Non-TEE node (at cell centre): straight half-tile from centre to the
+ *    exit-port boundary (existing behaviour).
+ *
+ *  - TEE sub-node (at main-port boundary): the node already sits at the
+ *    cell boundary, so the in-cell portion is determined by which port the
+ *    edge uses:
+ *      * Exiting via the sub-node's own main port: zero in-cell traversal
+ *        (the boundary IS the node).
+ *      * Exiting via the lone port: a quarter-arc through the cell from
+ *        the sub-node's main-port boundary to the lone-port boundary.
+ *        Uses the tile's own samplePath — monotone in both grid axes, no
+ *        bulge, no wiggle for either main approach.
+ *      * Exiting via the sibling sub-node's main port: only inside-cell
+ *        main-through edges hit this path; built separately as a straight
+ *        line in buildGraphFromLayout.
+ */
 function buildEdgeCurve(
   layout: TrackLayout,
   from: GraphNode,
@@ -271,16 +387,7 @@ function buildEdgeCurve(
   const toTile = layout.get(to.gridX, to.gridZ);
   if (!toTile) throw new Error(`to-junction (${to.gridX},${to.gridZ}) missing tile`);
 
-  // For each junction half-tile, compute the "first step direction" — the
-  // direction the rail continues after passing the cell boundary. Used as
-  // the tangent at cell centre for the lone-port (TEE branch) bezier so the
-  // rail visibly peels off the main toward where the spur extends, rather
-  // than dropping straight out perpendicular like a T.
-  const fromFirstStep = firstStepDirection(layout, exitPort, midCells, /*reversed=*/ false);
-  const toFirstStep = firstStepDirection(layout, entryPort, midCells, /*reversed=*/ true);
-
-  // From-junction half-tile (centre → boundary).
-  appendJunctionHalf(points, fromTile, from, exitPort, fromFirstStep);
+  appendJunctionHalf(points, fromTile, from, exitPort);
 
   // Mid cells.
   let entry = opposite(exitPort);
@@ -295,9 +402,9 @@ function buildEdgeCurve(
     entry = opposite(exit);
   }
 
-  // To-junction half-tile, built centre→boundary then reversed.
+  // To-junction half built node→boundary then reversed.
   const headLen = points.length;
-  appendJunctionHalf(points, toTile, to, entryPort, toFirstStep);
+  appendJunctionHalf(points, toTile, to, entryPort);
   const tail = points.splice(headLen);
   tail.reverse();
   const prev = points[points.length - 1];
@@ -307,51 +414,40 @@ function buildEdgeCurve(
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
 }
 
-/** Direction the rail continues after crossing the from-junction's boundary
- *  in the `port` direction. If the first mid-cell turns (e.g. a CURVE),
- *  this returns the curve's exit direction. With no mid-cells, returns the
- *  port direction itself (straight continuation into the next junction).
- *  `reversed=true` walks from the to-junction backward (last mid-cell first). */
-function firstStepDirection(
-  layout: TrackLayout,
-  port: Direction,
-  midCells: ReadonlyArray<readonly [number, number]>,
-  reversed: boolean,
-): Direction {
-  if (midCells.length === 0) return port;
-  const cell = reversed ? midCells[midCells.length - 1]! : midCells[0]!;
-  const tile = layout.get(cell[0], cell[1]);
-  if (!tile) return port;
-  const ports = effectivePorts(tile);
-  const entry = opposite(port);
-  if (!ports.includes(entry)) return port;
-  return ports[0] === entry ? ports[1]! : ports[0]!;
-}
-
-/** Append samples from cell centre out to a port boundary.
+/** Append samples from `node`'s position out to `port`'s boundary inside
+ *  the same cell. The shape depends on the node kind:
  *
- *  - "Main" ports (the port's opposite is also in the tile's port set —
- *    e.g. either of a TEE's through-pair, any CROSS port, a station-on-
- *    straight port) render as a STRAIGHT linear half-tile. The through
- *    rail at a TEE is a single straight line across the cell.
+ *  - TEE sub-node exiting its OWN main port: degenerate; node is already
+ *    at the port boundary. Just push a single sample.
  *
- *  - "Lone" ports (no opposite in the tile's port set — the TEE branch
- *    port) render as a SMOOTH CUBIC BEZIER. Tangent at the cell centre
- *    points along the main axis in the direction of the first step beyond
- *    the boundary (e.g. if the spur arm runs east after a north-exit
- *    branch port, the centre tangent is east). Tangent at the boundary is
- *    the port's perpendicular direction. The result visually peels the
- *    branch off the main at an angle — like a wooden Y-switch — instead
- *    of dropping perpendicular like a T.
+ *  - TEE sub-node exiting the LONE port: in-cell quarter arc from the
+ *    sub-node's main-port boundary to the lone-port boundary, sampled
+ *    from the tile's samplePath. Monotone in both axes.
+ *
+ *  - Non-TEE node: linear half-tile from cell centre to the port boundary.
+ *    Used for stations and non-junction-cell stubs.
  */
 function appendJunctionHalf(
   points: THREE.Vector3[],
   tile: PlacedTile,
   node: GraphNode,
   port: Direction,
-  firstStepDir: Direction,
 ): void {
   const cellY = node.pos.y;
+  if (node.mainSide) {
+    // TEE sub-node.
+    if (node.mainSide === port) {
+      // Exiting via own main port: node sits AT the boundary, no traversal.
+      points.push(node.pos.clone());
+      return;
+    }
+    // Quarter arc through the cell from main-port boundary to `port`
+    // boundary. The tile's samplePath returns world-coord points already.
+    const arc = sampleWorldPath(tile, node.mainSide, port, 16);
+    for (const p of arc) points.push(p);
+    return;
+  }
+  // Non-TEE node: straight from centre to boundary.
   const cellCenter = new THREE.Vector3(node.gridX * TILE_SIZE, cellY, node.gridZ * TILE_SIZE);
   const [dx, dz] = dirVector(port);
   const boundary = new THREE.Vector3(
@@ -359,40 +455,13 @@ function appendJunctionHalf(
     cellY,
     cellCenter.z + (dz * TILE_SIZE) / 2,
   );
-  const ports = effectivePorts(tile);
-  const isLone = !ports.includes(opposite(port));
-  if (!isLone) {
-    // Straight half-tile: linear from centre to boundary.
-    const N = 6;
-    for (let i = 0; i <= N; i++) {
-      const t = i / N;
-      points.push(new THREE.Vector3(
-        cellCenter.x + (boundary.x - cellCenter.x) * t,
-        cellY,
-        cellCenter.z + (boundary.z - cellCenter.z) * t,
-      ));
-    }
-    return;
-  }
-  // Lone (TEE branch) half-tile: smooth cubic bezier.
-  const [fdx, fdz] = dirVector(firstStepDir);
-  const handle = TILE_SIZE * 0.35;
-  const c0 = new THREE.Vector3(
-    cellCenter.x + fdx * handle,
-    cellY,
-    cellCenter.z + fdz * handle,
-  );
-  const c1 = new THREE.Vector3(
-    boundary.x - dx * handle,
-    cellY,
-    boundary.z - dz * handle,
-  );
-  const N = 16;
+  const N = 6;
   for (let i = 0; i <= N; i++) {
     const t = i / N;
-    const u = 1 - t;
-    const x = u*u*u*cellCenter.x + 3*u*u*t*c0.x + 3*u*t*t*c1.x + t*t*t*boundary.x;
-    const z = u*u*u*cellCenter.z + 3*u*u*t*c0.z + 3*u*t*t*c1.z + t*t*t*boundary.z;
-    points.push(new THREE.Vector3(x, cellY, z));
+    points.push(new THREE.Vector3(
+      cellCenter.x + (boundary.x - cellCenter.x) * t,
+      cellY,
+      cellCenter.z + (boundary.z - cellCenter.z) * t,
+    ));
   }
 }

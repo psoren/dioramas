@@ -70,11 +70,14 @@ describe('buildGraphFromLayout', () => {
       { gx: 3, gz: 2, kind: 'junction', label: 'east' },
       { gx: 1, gz: 2, kind: 'junction', label: 'west' },
     ]);
-    expect(graph.nodes.length).toBe(2);
-    // 3 edges total: long-way-around / main-short / branch
-    expect(graph.edges.length).toBe(3);
-    // Each node has 3 incident edges (TEE has 3 ports).
-    for (const node of graph.nodes) expect(node.edges.length).toBe(3);
+    // Each TEE cell is split into 2 sub-nodes (one per main-port boundary)
+    // so branch curves can be clean in-cell quarter arcs. 2 TEEs → 4 sub-
+    // nodes. Edges: 2 main-loop + 2 main-through (one inside each TEE) + 4
+    // branch (2 source sub-nodes × 2 dest sub-nodes through the spur U).
+    expect(graph.nodes.length).toBe(4);
+    expect(graph.edges.length).toBe(8);
+    // Each sub-node: 1 main-loop + 1 main-through + 2 branches.
+    for (const node of graph.nodes) expect(node.edges.length).toBe(4);
   });
 });
 
@@ -135,7 +138,9 @@ describe('generatePassingSiding', () => {
       return s / 2147483647;
     };
     const { graph, stations, junctions } = generatePassingSiding(rng);
-    expect(junctions.length).toBe(2);
+    // Each TEE cell is split into 2 sub-nodes (sub-node split lets branch
+    // curves be in-cell quarter arcs). The passing siding has 2 TEEs.
+    expect(junctions.length).toBe(4);
     expect(stations.length).toBe(2);
     // Every pair of nodes must be reachable.
     for (const a of graph.nodes) {
