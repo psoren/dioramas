@@ -21,6 +21,13 @@ auto-orbit cinematic camera. See `coral-reef-diorama/PROMPT.md` for
 the original spec and `coral-reef-diorama/ANIMAL_CRITERIA.md` for the
 "does this animal look good" rubric.
 
+### `sky-islands-diorama/` *(WIP)*
+Ghibli-flavoured cluster of floating islands at sunset, with airships
+on patrol routes weaving between them. Procedural island generation,
+bird-flock boids, day/night cycle (sunset is the payoff shot), brass-
+and-canvas airship variants. See `sky-islands-diorama/DESIGN.md` for
+the spec.
+
 ## Running
 
 Each project has its own dev server:
@@ -28,6 +35,7 @@ Each project has its own dev server:
 ```sh
 cd lego-retro-space-train && npm install && npm run dev
 cd coral-reef-diorama && npm install && npm run dev
+cd sky-islands-diorama && npm install && npm run dev
 ```
 
 Vite picks the next free port if 5173 is in use.
