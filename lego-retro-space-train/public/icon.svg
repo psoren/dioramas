@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- iOS home-screen icon for the WFC dashboard. Top-down view of a
+       LEGO-style track loop on the blue base plate, matching the
+       dashboard's render aesthetic. -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2768a8"/>
+      <stop offset="100%" stop-color="#194d80"/>
+    </linearGradient>
+  </defs>
+  <!-- Background plate -->
+  <rect width="256" height="256" rx="48" fill="url(#plate)"/>
+  <!-- Inner plate border (LEGO bevel hint) -->
+  <rect x="14" y="14" width="228" height="228" rx="38" fill="none" stroke="#3a7ec8" stroke-width="2" opacity="0.5"/>
+
+  <!-- Track loop: rounded rect, sandy deck colour. -->
+  <rect x="44" y="68" width="168" height="120" rx="44" fill="none" stroke="#d6b288" stroke-width="22"/>
+  <!-- Centre stripe -->
+  <rect x="44" y="68" width="168" height="120" rx="44" fill="none" stroke="#15151a" stroke-width="3"/>
+
+  <!-- Branch (TEE) hanging off the bottom -->
+  <line x1="128" y1="188" x2="128" y2="220" stroke="#d6b288" stroke-width="22" stroke-linecap="round"/>
+  <line x1="128" y1="188" x2="128" y2="220" stroke="#15151a" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Station block on top of the loop -->
+  <rect x="116" y="44" width="24" height="22" rx="3" fill="#aaa" stroke="#666" stroke-width="1"/>
+  <!-- Station studs -->
+  <circle cx="122" cy="55" r="2.5" fill="#888"/>
+  <circle cx="134" cy="55" r="2.5" fill="#888"/>
+
+  <!-- Two trains as small bright cubes on the loop -->
+  <rect x="184" y="116" width="12" height="14" rx="2" fill="#5cf"/>
+  <rect x="60" y="120" width="14" height="12" rx="2" fill="#f1a738"/>
+</svg>
