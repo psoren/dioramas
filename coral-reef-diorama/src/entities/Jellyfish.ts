@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
+import { WorldState } from '../world/WorldState';
 
 export interface JellyfishOptions {
   position?: THREE.Vector3Tuple;
@@ -8,6 +9,8 @@ export interface JellyfishOptions {
   driftRange?: number;
   /** Visual scale multiplier. Default 1. */
   scale?: number;
+  /** WorldState — bell emissive boosts at night. */
+  worldState?: WorldState;
 }
 
 interface Tendril {
@@ -35,6 +38,9 @@ export class Jellyfish implements Entity {
   private readonly tendrils: Tendril[] = [];
   private readonly basePos: THREE.Vector3;
   private readonly driftRange: number;
+  private readonly worldState: WorldState | undefined;
+  private readonly bellMat: THREE.MeshStandardMaterial;
+  private readonly baseEmissiveIntensity: number;
   private time = 0;
 
   constructor(opts: JellyfishOptions = {}) {
@@ -42,24 +48,25 @@ export class Jellyfish implements Entity {
     this.object3d.position.fromArray(opts.position ?? [0, 6, 0]);
     this.basePos = this.object3d.position.clone();
     this.driftRange = opts.driftRange ?? 2.0;
+    this.worldState = opts.worldState;
     const scale = opts.scale ?? 1;
     this.object3d.scale.setScalar(scale);
 
-    // Bell — half sphere, translucent. Don't cast shadow (translucents look
-    // wrong when shadowed).
+    // Bell — half sphere, translucent. Clone material so per-jelly emissive
+    // can be modulated at night without affecting other jellies.
     const bellGeo = new THREE.SphereGeometry(0.5, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-    this.bell = new THREE.Mesh(bellGeo, MAT.jellyfishBell);
+    this.bellMat = (MAT.jellyfishBell as THREE.MeshStandardMaterial).clone();
+    this.baseEmissiveIntensity = this.bellMat.emissiveIntensity;
+    this.bell = new THREE.Mesh(bellGeo, this.bellMat);
     this.bell.scale.set(1.0, 0.85, 1.0);
     this.object3d.add(this.bell);
 
-    // Frill — small spheres around the bell rim
+    // Frill — small spheres around the bell rim. Share the cloned bell
+    // material so the emissive boost lights them together.
     const frillCount = 12;
     for (let i = 0; i < frillCount; i++) {
       const a = (i / frillCount) * Math.PI * 2;
-      const lump = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06, 8, 6),
-        MAT.jellyfishBell,
-      );
+      const lump = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), this.bellMat);
       lump.position.set(Math.cos(a) * 0.5, 0.02, Math.sin(a) * 0.5);
       this.bell.add(lump);
     }
@@ -113,6 +120,19 @@ export class Jellyfish implements Entity {
     const driftCentre = this.basePos.y;
     const targetY = driftCentre + Math.sin(this.time * 0.6) * this.driftRange * 0.5;
     this.object3d.position.y += (targetY - this.object3d.position.y) * dt * 0.8;
+
+    // Horizontal drift carries the jelly with the current.
+    if (this.worldState) {
+      this.object3d.position.x += this.worldState.current.x * dt;
+      this.object3d.position.z += this.worldState.current.z * dt;
+    }
+
+    // Brighten emissive at night — chromatophore glow.
+    if (this.worldState) {
+      const nightness = 1 - this.worldState.dayNess;
+      this.bellMat.emissiveIntensity =
+        this.baseEmissiveIntensity * (1 + nightness * 2.5);
+    }
 
     // Tendril sway — each segment bends a little, additive down the chain.
     // Because segments are nested, bending one rotates everything below it,

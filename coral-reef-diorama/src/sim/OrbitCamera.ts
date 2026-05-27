@@ -27,6 +27,16 @@ const DISTANCE_DRIFT_AMP = 2.5;    // units amplitude around the resting distanc
 
 export class OrbitCamera {
   readonly target = new THREE.Vector3(0, 2, 0);
+  /**
+   * Static colliders the camera should not pass through. Populated externally
+   * (typically with the reef + floor objects). When set, `apply()` raycasts
+   * from target outward and clamps the orbit distance just inside any hit.
+   */
+  colliders: THREE.Object3D[] = [];
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly camDir = new THREE.Vector3();
+  private readonly upDir = new THREE.Vector3(0, 1, 0);
+
   private readonly state: OrbitState;
   private readonly defaultState: OrbitState;
   /** Time since the user last interacted, in seconds. */
@@ -99,10 +109,51 @@ export class OrbitCamera {
 
   private apply(): void {
     const { azimuth: az, elevation: el, distance: d } = this.state;
+    const dirX = Math.cos(el) * Math.sin(az);
+    const dirY = Math.sin(el);
+    const dirZ = Math.cos(el) * Math.cos(az);
+
+    // Collide against static rocks/reefs. Two-step:
+    //   1. Probe whether the target itself is inside a collider (e.g. the eel
+    //      whose position lives inside the reef mound) by casting straight
+    //      up — an odd hit count means inside.
+    //   2. Cast outward in the camera direction. Hit indices behave
+    //      differently depending on target-inside-ness:
+    //        target OUTSIDE: hits[0] is the first rock entry between target
+    //                        and camera — clamp camera just before it.
+    //        target INSIDE:  hits[0] is the target's own exit; ignore it.
+    //                        hits[1] (if present) is the entry of another
+    //                        rock the camera would otherwise punch into —
+    //                        clamp before that. If only one hit, the camera
+    //                        is already past the target's rock at distance d.
+    let actualDist = d;
+    if (this.colliders.length > 0) {
+      this.raycaster.set(this.target, this.upDir);
+      this.raycaster.far = 100;
+      const upHits = this.raycaster.intersectObjects(this.colliders, true);
+      const targetInside = upHits.length % 2 === 1;
+
+      this.camDir.set(dirX, dirY, dirZ);
+      this.raycaster.set(this.target, this.camDir);
+      this.raycaster.far = d + 1.0;
+      const hits = this.raycaster.intersectObjects(this.colliders, true);
+
+      if (targetInside) {
+        if (hits.length >= 2) {
+          actualDist = Math.max(1.2, hits[1]!.distance - 0.4);
+        } else if (hits.length === 1) {
+          // Ensure the camera is comfortably past the exit of the target's rock.
+          actualDist = Math.max(actualDist, hits[0]!.distance + 0.5);
+        }
+      } else if (hits.length >= 1) {
+        actualDist = Math.max(1.2, hits[0]!.distance - 0.4);
+      }
+    }
+
     this.camera.position.set(
-      this.target.x + d * Math.cos(el) * Math.sin(az),
-      this.target.y + d * Math.sin(el),
-      this.target.z + d * Math.cos(el) * Math.cos(az),
+      this.target.x + actualDist * dirX,
+      this.target.y + actualDist * dirY,
+      this.target.z + actualDist * dirZ,
     );
     this.camera.lookAt(this.target);
   }
@@ -160,16 +211,17 @@ export class OrbitCamera {
   /** Object3Ds the auto-camera may pick to focus on. Set externally. */
   focusCandidates: THREE.Object3D[] = [];
 
-  /** Seconds between auto-focus picks. Drift in between. */
-  focusInterval = 18;
-  /** How long each focus lasts. */
-  focusDuration = 9;
+  /** Seconds of drift between auto-focus picks. */
+  focusInterval = 2;
+  /** How long each focus lasts. Combined with focusInterval = full cycle. */
+  focusDuration = 13;
   /** Camera distance while focused. */
   focusDistance = 6;
 
   private timeSinceLastFocus = 0;
   private focusTarget: THREE.Object3D | null = null;
   private focusTimeRemaining = 0;
+  private lastFocusIndex = -1;
   private readonly tempVec = new THREE.Vector3();
 
   /** Force the camera to pull subject into view for `focusDuration` seconds. */
@@ -182,6 +234,13 @@ export class OrbitCamera {
     this.focusTarget = null;
     this.focusTimeRemaining = 0;
     this.timeSinceLastFocus = 0;
+  }
+
+  /** Label of the currently focused target, if any. Read from `userData.focusLabel`. */
+  get focusLabel(): string | null {
+    if (!this.focusTarget) return null;
+    const v = this.focusTarget.userData?.['focusLabel'];
+    return typeof v === 'string' ? v : null;
   }
 
   /** Wrapper around tick(dt) that also handles focus pick/track logic. */
@@ -218,8 +277,14 @@ export class OrbitCamera {
     }
     this.timeSinceLastFocus += dt;
     if (this.timeSinceLastFocus >= this.focusInterval && this.focusCandidates.length > 0) {
-      const pick = this.focusCandidates[Math.floor(Math.random() * this.focusCandidates.length)]!;
-      this.focusOn(pick);
+      // Pick a different candidate than the previous one when possible so
+      // we don't sit on the same creature twice in a row.
+      let idx = Math.floor(Math.random() * this.focusCandidates.length);
+      if (this.focusCandidates.length > 1 && idx === this.lastFocusIndex) {
+        idx = (idx + 1) % this.focusCandidates.length;
+      }
+      this.lastFocusIndex = idx;
+      this.focusOn(this.focusCandidates[idx]!);
     }
   }
 }

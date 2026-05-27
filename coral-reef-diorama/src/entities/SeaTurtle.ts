@@ -63,14 +63,27 @@ export class SeaTurtle implements Entity {
     this.body.add(belly);
 
     // Scale pattern — small darker patches on the carapace dome so it
-    // doesn't read as a smooth ball.
+    // doesn't read as a smooth ball. Each patch sits flush on the dome
+    // surface: the shell is an ellipsoid with half-axes (0.75, 0.27, 0.57)
+    // centred at y=0.18, so the surface y at horizontal (px, pz) is
+    //     surfaceY = 0.18 + 0.27 * sqrt(1 - (x/0.75)^2 - (z/0.57)^2).
+    const SHELL_RX = 0.75;
+    const SHELL_RY = 0.27;
+    const SHELL_RZ = 0.57;
+    const SHELL_CY = 0.18;
     for (const [px, pz] of [[0, 0], [0.35, 0.15], [-0.35, 0.15], [0.35, -0.15], [-0.35, -0.15], [0, 0.3], [0, -0.3]] as const) {
+      const ax = px * 1.2;
+      const az = pz;
+      const u = (ax / SHELL_RX) ** 2 + (az / SHELL_RZ) ** 2;
+      const surfaceY = u < 1 ? SHELL_CY + SHELL_RY * Math.sqrt(1 - u) : SHELL_CY;
       const patch = new THREE.Mesh(
         new THREE.SphereGeometry(0.18, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
         MAT.turtleShellPattern,
       );
       patch.scale.set(0.7, 0.08, 0.5);
-      patch.position.set(px * 1.2, 0.45, pz);
+      // Tiny +y nudge so the patch sits just above the carapace and isn't
+      // z-fought by the shell triangles directly below it.
+      patch.position.set(ax, surfaceY + 0.005, az);
       this.body.add(patch);
     }
 

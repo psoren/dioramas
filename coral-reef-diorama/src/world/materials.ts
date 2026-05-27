@@ -45,6 +45,14 @@ export const MAT = {
   fishBlue: std(0x3080ff, { roughness: 0.4 }),
   fishOrange: std(0xff7030, { roughness: 0.4 }),
   fishSilver: std(0xc8d0d8, { roughness: 0.35, metalness: 0.25 }),
+  fishClown: std(0xff5a1c, { roughness: 0.4 }),
+  fishTang: std(0x1a3aa8, { roughness: 0.4 }),
+  fishLime: std(0x60e040, { roughness: 0.4 }),
+  fishPurple: std(0x9040d8, { roughness: 0.4 }),
+  fishRed: std(0xd02828, { roughness: 0.4 }),
+  fishPink: std(0xff80b0, { roughness: 0.4 }),
+  fishCyan: std(0x40e0d0, { roughness: 0.4 }),
+  fishGold: std(0xf0c060, { roughness: 0.35, metalness: 0.15 }),
 
   sharkGray: std(0x5a6068, { roughness: 0.5 }),
   sharkBelly: std(0xd8dce0, { roughness: 0.5 }),
@@ -107,4 +115,32 @@ export const MAT = {
     side: THREE.DoubleSide,
     roughness: 0.2,
   }),
+
+  eelSkin: std(0x4a5a3a, { roughness: 0.55 }),
+  eelBelly: std(0xc8c08a, { roughness: 0.55 }),
+  eelMouth: std(0x301818, { roughness: 0.5 }),
+  eelHole: std(0x0a0c10, { roughness: 1 }),
+
+  starfishOrange: std(0xd8602a, { roughness: 0.6 }),
+
+  urchinBody: std(0x1a1018, { roughness: 0.8 }),
+  urchinSpine: std(0x080608, { roughness: 0.9 }),
+
+  spongeRed: std(0xc04030, { roughness: 0.7 }),
+  spongeOrange: std(0xe0703a, { roughness: 0.7 }),
+  spongePurple: std(0x603a90, { roughness: 0.7 }),
+
+  kelpDark: std(0x2a4a20, { roughness: 0.55 }),
+  kelpLight: std(0x4a7a30, { roughness: 0.55 }),
+
+  octopusBody: std(0xb04060, { roughness: 0.45 }),
+
+  crabShell: std(0xc02828, { roughness: 0.55 }),
+  crabClaw: std(0xa02020, { roughness: 0.55 }),
+  crabLeg: std(0x801818, { roughness: 0.55 }),
+
+  rayTop: std(0x3a3024, { roughness: 0.55 }),
+  rayBelly: std(0xd8c8a8, { roughness: 0.55 }),
+
+  seahorseBody: std(0xf0a830, { roughness: 0.5 }),
 } as const;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { Sim } from '../sim/Sim';
+import { WorldState } from '../world/WorldState';
 
 const CYCLE_SECONDS = 120; // full day-night-day cycle
 
@@ -51,7 +52,7 @@ export class DayNightCycle implements Entity {
   private readonly hemi: THREE.HemisphereLight | null;
   private readonly rim: THREE.DirectionalLight | null;
 
-  constructor(private readonly sim: Sim) {
+  constructor(private readonly sim: Sim, private readonly worldState?: WorldState) {
     let sun: THREE.DirectionalLight | null = null;
     let rim: THREE.DirectionalLight | null = null;
     let ambient: THREE.AmbientLight | null = null;
@@ -84,6 +85,7 @@ export class DayNightCycle implements Entity {
 
     // dayNess = 1 at noon (phase 0), 0 at midnight (phase 0.5).
     const dayNess = 0.5 + 0.5 * Math.cos(this.phase * Math.PI * 2);
+    if (this.worldState) this.worldState.dayNess = dayNess;
 
     // Lerp colours and intensities
     if (this.sun) {

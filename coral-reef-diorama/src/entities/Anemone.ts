@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
+import { WorldState } from '../world/WorldState';
 
 export interface AnemoneOptions {
   position?: THREE.Vector3Tuple;
@@ -10,6 +11,8 @@ export interface AnemoneOptions {
   tendrils?: number;
   /** Visual scale multiplier. Default 1. */
   scale?: number;
+  /** WorldState — anemones close at night and lean with current. */
+  worldState?: WorldState;
 }
 
 interface Tendril {
@@ -29,9 +32,11 @@ interface Tendril {
 export class Anemone implements Entity {
   readonly object3d: THREE.Group;
   private readonly tendrils: Tendril[] = [];
+  private readonly worldState: WorldState | undefined;
   private time = 0;
 
   constructor(opts: AnemoneOptions = {}) {
+    this.worldState = opts.worldState;
     const scale = opts.scale ?? 1;
     const tendrilCount = opts.tendrils ?? 24;
     const tendrilMat = opts.variant === 'green' ? MAT.anemoneTendrilGreen : MAT.anemoneTendril;
@@ -77,15 +82,19 @@ export class Anemone implements Entity {
 
   update(dt: number): void {
     this.time += dt;
+    const ws = this.worldState;
+    // Close at night — multiply outward lean by dayNess so tendrils stand
+    // upright in the dark.
+    const openness = ws ? 0.25 + 0.75 * ws.dayNess : 1;
+    const curX = ws ? ws.current.x : 0;
+    const curZ = ws ? ws.current.z : 0;
     for (const t of this.tendrils) {
-      // Sway both around the world-x axis and an outward axis to make it
-      // feel three-dimensional rather than flicking like a 2D pendulum.
       const sway = Math.sin(this.time * 1.4 + t.phase) * t.amplitude;
       const drift = Math.cos(this.time * 0.8 + t.phase * 1.3) * t.amplitude * 0.6;
-      // x rotation tilts toward/away from the camera as set up; z rotation
-      // tips sideways. The baseTilt makes outer tendrils lean out.
-      t.mesh.rotation.x = Math.cos(t.azimuth) * t.baseTilt + drift;
-      t.mesh.rotation.z = Math.sin(t.azimuth) * t.baseTilt + sway;
+      // Current bias: a constant tilt component in the current direction so
+      // the whole anemone leans downstream.
+      t.mesh.rotation.x = Math.cos(t.azimuth) * t.baseTilt * openness + drift + curZ * 0.6;
+      t.mesh.rotation.z = Math.sin(t.azimuth) * t.baseTilt * openness + sway - curX * 0.6;
     }
   }
 }
