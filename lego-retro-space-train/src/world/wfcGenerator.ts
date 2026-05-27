@@ -62,13 +62,7 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
   const variants = enumerateVariants(1);
   const table = buildAdjacencyTable(variants);
   const variantById = table.byId;
-  // Pre-seed: a single STATION_N at grid centre. This is the anchor
-  // for the wavefront observer (pickFrontierCell in wfc.ts) — every
-  // subsequent collapse is at a cell adjacent to an already-collapsed
-  // one, so the network grows out from this seed and connectivity is
-  // implicit. keepOnlyLargestComponent then prunes any stragglers from
-  // the wavefront's fallback to global-lowest-entropy if a contradiction
-  // forces it during propagation.
+  // Pre-seed: STATION_N at centre. Wavefront grows from there.
   const preSeed = new Map<string, string>();
   const cx = Math.floor(size / 2);
   const cy = Math.floor(size / 2);

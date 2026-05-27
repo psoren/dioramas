@@ -1,5 +1,259 @@
 [
   {
+    "batchId": "2026-05-27T19-44-35-4ffb735",
+    "commit": "4ffb735",
+    "timestamp": "2026-05-27T19:45:06.380Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 10,
+      "parallelTotal": 201,
+      "elevatedOK": 7,
+      "coverageMean": 0.553
+    },
+    "sets": [
+      {
+        "seed": 105162,
+        "ok": true,
+        "tiles": 92,
+        "parallel": 12,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.519,
+        "cellsTotal": 77,
+        "cellsGround": 40,
+        "cellsElevated": 0,
+        "cellsUncovered": 37,
+        "firstRollCells": 92,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 106420,
+        "ok": true,
+        "tiles": 140,
+        "parallel": 37,
+        "elevatedOK": true,
+        "elevatedThrough": 4,
+        "coverage": 0.77,
+        "cellsTotal": 87,
+        "cellsGround": 67,
+        "cellsElevated": 67,
+        "cellsUncovered": 20,
+        "firstRollCells": 140,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 101676,
+        "ok": true,
+        "tiles": 88,
+        "parallel": 18,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "coverage": 0.629,
+        "cellsTotal": 62,
+        "cellsGround": 39,
+        "cellsElevated": 0,
+        "cellsUncovered": 23,
+        "firstRollCells": 88,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107309,
+        "ok": true,
+        "tiles": 87,
+        "parallel": 2,
+        "elevatedOK": true,
+        "elevatedThrough": 8,
+        "coverage": 0.062,
+        "cellsTotal": 81,
+        "cellsGround": 5,
+        "cellsElevated": 5,
+        "cellsUncovered": 76,
+        "firstRollCells": 87,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107073,
+        "ok": true,
+        "tiles": 147,
+        "parallel": 28,
+        "elevatedOK": true,
+        "elevatedThrough": 6,
+        "coverage": 0.724,
+        "cellsTotal": 98,
+        "cellsGround": 71,
+        "cellsElevated": 71,
+        "cellsUncovered": 27,
+        "firstRollCells": 147,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 111448,
+        "ok": true,
+        "tiles": 127,
+        "parallel": 30,
+        "elevatedOK": true,
+        "elevatedThrough": 5,
+        "coverage": 0.744,
+        "cellsTotal": 86,
+        "cellsGround": 64,
+        "cellsElevated": 64,
+        "cellsUncovered": 22,
+        "firstRollCells": 127,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 113453,
+        "ok": true,
+        "tiles": 103,
+        "parallel": 23,
+        "elevatedOK": true,
+        "elevatedThrough": 4,
+        "coverage": 0.419,
+        "cellsTotal": 74,
+        "cellsGround": 31,
+        "cellsElevated": 31,
+        "cellsUncovered": 43,
+        "firstRollCells": 103,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 114469,
+        "ok": true,
+        "tiles": 128,
+        "parallel": 32,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.478,
+        "cellsTotal": 92,
+        "cellsGround": 44,
+        "cellsElevated": 0,
+        "cellsUncovered": 48,
+        "firstRollCells": 128,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 115439,
+        "ok": true,
+        "tiles": 106,
+        "parallel": 13,
+        "elevatedOK": true,
+        "elevatedThrough": 4,
+        "coverage": 0.667,
+        "cellsTotal": 84,
+        "cellsGround": 56,
+        "cellsElevated": 56,
+        "cellsUncovered": 28,
+        "firstRollCells": 106,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 112274,
+        "ok": true,
+        "tiles": 100,
+        "parallel": 6,
+        "elevatedOK": true,
+        "elevatedThrough": 5,
+        "coverage": 0.523,
+        "cellsTotal": 88,
+        "cellsGround": 46,
+        "cellsElevated": 46,
+        "cellsUncovered": 42,
+        "firstRollCells": 100,
+        "addedByRoll2": 0
+      }
+    ],
+    "notes": "Iter 20: reverted to STATION_N seed + softer weights (tee=5, curve=4, straight=2, cross=1) to reduce contradiction rate while still encouraging branching."
+  },
+  {
+    "batchId": "2026-05-27T19-42-00-4ffb735",
+    "commit": "4ffb735",
+    "timestamp": "2026-05-27T19:44:01.472Z",
+    "size": 13,
+    "stats": {
+      "solves": 2,
+      "total": 10,
+      "layoutsWithParallel": 2,
+      "parallelTotal": 62,
+      "elevatedOK": 1,
+      "coverageMean": 0.566
+    },
+    "sets": [
+      {
+        "seed": 100616,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":146,\"build-graph-threw:traceEdge hit dead end at (-5,-6) y=0\":4,\"build-graph-threw:"
+      },
+      {
+        "seed": 103894,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":10,\"build-graph-threw:traceEdge hit dead end at (-6,0) y=0\":2,\"build-graph-threw:Canno"
+      },
+      {
+        "seed": 108122,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":145,\"build-graph-threw:traceEdge hit dead end at (-3,-6) y=0\":1,\"build-graph-threw:"
+      },
+      {
+        "seed": 111254,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":140,\"build-graph-threw:traceEdge hit dead end at (-3,1) y=0\":1,\"build-graph-threw:t"
+      },
+      {
+        "seed": 103990,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":150,\"build-graph-threw:traceEdge hit dead end at (-5,5) y=0\":1,\"build-graph-threw:t"
+      },
+      {
+        "seed": 106667,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":146,\"build-graph-threw:traceEdge hit dead end at (-4,6) y=0\":1,\"build-graph-threw:t"
+      },
+      {
+        "seed": 110162,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":138,\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":8,\"no-junctions\":2,\"b"
+      },
+      {
+        "seed": 113280,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":143,\"build-graph-threw:traceEdge hit dead end at (-3,0) y=0\":1,\"build-graph-threw:t"
+      },
+      {
+        "seed": 106729,
+        "ok": true,
+        "tiles": 134,
+        "parallel": 36,
+        "elevatedOK": true,
+        "elevatedThrough": 3,
+        "coverage": 0.636,
+        "cellsTotal": 88,
+        "cellsGround": 56,
+        "cellsElevated": 56,
+        "cellsUncovered": 32,
+        "firstRollCells": 134,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 106605,
+        "ok": true,
+        "tiles": 129,
+        "parallel": 26,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.495,
+        "cellsTotal": 91,
+        "cellsGround": 45,
+        "cellsElevated": 0,
+        "cellsUncovered": 46,
+        "firstRollCells": 129,
+        "addedByRoll2": 0
+      }
+    ],
+    "notes": "Iter 19: replaced STATION_N pre-seed with CROSS_NESW so wavefront grows in all 4 directions from origin instead of just N."
+  },
+  {
     "batchId": "2026-05-27T19-32-09-2b8dff9",
     "commit": "2b8dff9",
     "timestamp": "2026-05-27T19:33:35.479Z",

@@ -168,14 +168,13 @@ function supportsLevels(def: TrackTileDef): boolean {
  *  moderately common so the grid can leave whitespace. */
 function defaultWeight(def: TrackTileDef): number {
   switch (def.kind) {
-    // Wavefront observe + branch bias: prefer tiles that ADD ports
-    // (TEE > CURVE > STRAIGHT). Each TEE creates an extra open port
-    // for the wavefront to grow into, so the network branches out
-    // instead of running a single snake through the grid.
-    case 'straight-ns': return 1;
-    case 'curve-ne': return 3;
-    case 'tee-nes': return 8;
-    case 'cross-nesw': return 2;
+    // Wavefront observe + moderate branch bias. Higher TEE/CURVE
+    // weight than STRAIGHT to encourage branching, but not so high
+    // that adjacency contradictions blow up the solver.
+    case 'straight-ns': return 2;
+    case 'curve-ne': return 4;
+    case 'tee-nes': return 5;
+    case 'cross-nesw': return 1;
     case 'ramp-ns': return 0.2;
     case 'ramp-ns-tall': return 0.2;
     case 'elevated-straight-ns': return 0.4;
