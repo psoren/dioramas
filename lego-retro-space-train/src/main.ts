@@ -177,6 +177,20 @@ function placeTrackOnGraph(
       update: () => updateSwitches(track, train, graph),
     };
     randomEntities.push(sim.add(switchUpdater));
+    // Second train: same graph, different start position (halfway
+    // around the cycle) and a contrasting colour. Visually conveys
+    // "two trains on the network" and where the parallel-overpass
+    // section exists, one train may be passing under/over the other.
+    if (targets.length >= 3) {
+      const startIdx = Math.floor(targets.length / 2);
+      const train2 = sim.add(new GraphTrain({
+        graph,
+        targetCycle: targets,
+        startAt: targets[startIdx],
+      }));
+      train2.object3d.position.y += 0.02;
+      randomEntities.push(train2);
+    }
   }
 }
 
