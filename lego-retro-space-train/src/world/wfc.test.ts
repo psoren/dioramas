@@ -25,7 +25,6 @@ describe('WFC adjacency table', () => {
     const table = buildAdjacencyTable(variants);
     const empty = variants.find((v) => v.def.kind === 'empty')!;
     expect(empty).toBeDefined();
-    // EMPTY's east neighbor must have no W port.
     for (const id of table.allowed.get(empty.id)!.E) {
       const neighbor = table.byId.get(id)!;
       expect(neighbor.portY.W).toBeNull();

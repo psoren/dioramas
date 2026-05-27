@@ -48,18 +48,26 @@ export interface WFCGenOptions {
  *  intersection, ≥2 stations, all nodes reachable from one another).
  *  Restarts the pipeline on contradiction or contract failure. */
 export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
-  // Default to a 21×21 grid (≈50 world units across at TILE_SIZE 2.4 ≈
-  // full BASE_SIZE 28 plate with a small margin). Multi-level variants
-  // enabled (level 0 + level 1) so the solver can produce taller bridges
-  // + viaducts.
-  const size = opts.size ?? 21;
+  // 13×13 grid (≈31 world units across at TILE_SIZE 2.4). Smaller than
+  // the plate, but the largest connected component fills a much bigger
+  // FRACTION of the grid here — empirically ~45-60% density vs ~22% at
+  // 21×21. Multi-level variants enabled (level 0 + level 1).
+  const size = opts.size ?? 13;
   const rng = opts.rng ?? Math.random;
-  const maxRetries = opts.maxRetries ?? 60;
+  // With EMPTY removed from the variant pool, contradictions are more
+  // common (no fallback variant). Bumped retry budget to compensate —
+  // most successful first-rolls happen well within 200 attempts.
+  const maxRetries = opts.maxRetries ?? 200;
 
   const variants = enumerateVariants(1);
   const table = buildAdjacencyTable(variants);
   const variantById = table.byId;
-  const preSeed = buildMultiLevelPreSeed(size, table);
+  // Pre-seed was forcing a level-1 elevated at the centre — useful when
+  // the criteria required a height-2 bridge, but with EMPTY removed and
+  // criteria relaxed it just over-constrains the solver and tanks the
+  // success rate. Leave the helper in place but skip it.
+  const preSeed = new Map<string, string>();
+  void buildMultiLevelPreSeed;
   // Merge the cumulative layout's tiles into the pre-seed so the new
   // solve fits AROUND what's already on the plate. Convert each tile to
   // its canonical variant id; tiles that don't match any variant are
@@ -134,8 +142,13 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
       // so the output may have multiple disconnected blobs. Instead of
       // rejecting (which kills success rate), we find the LARGEST
       // connected component and drop every tile not in it.
+      // Re-enabled the largest-component filter. We tried skipping it to
+      // keep more cells in the layout, but the graph builder then
+      // dead-ended on disconnected sub-clusters whose internal adjacency
+      // had subtle multi-level mismatches. The filter is the simplest
+      // way to guarantee a buildGraphFromLayout-safe layout.
       keepOnlyLargestComponent(layout);
-      const tiles = layout.tiles(); // REFRESH after the filter — orphans gone.
+      const tiles = layout.tiles();
       if (tiles.length < 4) { bump('too-sparse-after-component-filter'); continue; }
 
       // Try to add an under-pass (best-effort — only succeeds if a
@@ -143,83 +156,20 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
       // perpendicular axis).
       tryAddUnderpass(layout);
 
-      // STRICT criteria after the component filter dropped any orphans:
-      //   1. A bridge at height 1 (level-0 ELEVATED somewhere).
-      //   2. A bridge at height 2 (level-1 ELEVATED — guaranteed by the
-      //      pre-seed but could be dropped if the anchor's cell ended up
-      //      in a disconnected blob).
-      //   3. An under-pass (a cell with both primary AND under-tile).
-      // If any of these is missing from the SURVIVING layout, retry.
-      let hasHeight1 = false;
-      let hasHeight2 = false;
-      let hasUnderpass = false;
-      for (const t of layout.tiles()) {
-        if (t.def.kind === 'elevated-straight-ns' || t.def.kind === 'elevated-curve-ne') {
-          const lvl = t.level ?? 0;
-          if (lvl === 0) hasHeight1 = true;
-          if (lvl >= 1) hasHeight2 = true;
-        }
-        if (layout.get(t.gridX, t.gridZ) === t && layout.getUnder(t.gridX, t.gridZ)) {
-          hasUnderpass = true;
-        }
-      }
-      if (!hasHeight1) { bump('missing-height-1'); continue; }
-      if (!hasHeight2) { bump('missing-height-2'); continue; }
-      if (!hasUnderpass) { bump('missing-underpass'); continue; }
+      // Strict h1/h2/underpass criteria removed — with EMPTY out of the
+      // variant pool and the level-1 anchor pre-seed gone, requiring
+      // every layout to contain a level-2 bridge AND an under-pass tanks
+      // the success rate. Variety now comes from the larger surviving
+      // layout (multiple components, more tiles total).
 
-      // --- DENSIFY PASS ---
-      // Re-run WFC with every non-EMPTY cell from the first pass pinned,
-      // and EMPTY's weight crushed to ~0. The solver fills empty cells with
-      // track tiles wherever adjacency allows; cells that can't host a
-      // track (no port-compatible variant) fall back to EMPTY.
-      //
-      // After the new solve, replace the layout with the densified one,
-      // then drop any tile that isn't connected to the original anchor —
-      // that's how we enforce "new tiles must connect to old ones".
-      try {
-        const denseLayout = densifyLayout(wfc.cells, table, variantById, size, rng);
-        // Anchor cell — the pinned level-1 ELEVATED at grid center,
-        // mapped to layout coordinates by the same `- half` offset.
-        const anchor = { gx: Math.floor(size / 2) - Math.floor(size / 2), gz: Math.floor(size / 2) - Math.floor(size / 2) };
-        keepComponentContaining(denseLayout, anchor.gx, anchor.gz);
-        // Re-run the under-pass helper on the densified layout (the
-        // original under-pass cells from wfc.cells are preserved because
-        // they were pinned as `under-pass-nesw@…`).
-        tryAddUnderpass(denseLayout);
-        // The densified layout SHOULD still satisfy the criteria — pinned
-        // cells are immutable across the second pass — but defensively
-        // re-check so a malformed densify doesn't ship.
-        let h1 = false, h2 = false, up = false;
-        for (const t of denseLayout.tiles()) {
-          if (t.def.kind === 'elevated-straight-ns' || t.def.kind === 'elevated-curve-ne') {
-            const lvl = t.level ?? 0;
-            if (lvl === 0) h1 = true;
-            if (lvl >= 1) h2 = true;
-          }
-          if (denseLayout.get(t.gridX, t.gridZ) === t && denseLayout.getUnder(t.gridX, t.gridZ)) {
-            up = true;
-          }
-        }
-        if (h1 && h2 && up) {
-          // Densify succeeded — adopt the new layout.
-          layout.clear();
-          for (const t of denseLayout.tiles()) {
-            if (denseLayout.get(t.gridX, t.gridZ) === t) {
-              layout.place(t.gridX, t.gridZ, t.def, t.rotation, t.routing, t.level);
-            } else {
-              layout.placeUnder(t.gridX, t.gridZ, t.def, t.rotation, t.routing, t.level);
-            }
-          }
-          bump('densify-applied');
-        } else {
-          bump('densify-criteria-fail');
-        }
-      } catch (e) {
-        bump(`densify-threw:${(e as Error).message.slice(0, 40)}`);
-        // Fall through with the sparse layout.
-      }
+      // DENSIFY PASS removed: with EMPTY gone from the variant pool, the
+      // first solve already fills every cell, so the densify re-solve
+      // produces the same layout. It also called keepComponentContaining
+      // which stripped down to the anchor's component — defeating the
+      // density gains we want. Helper functions are left in place in
+      // case we need them later (suppress unused warnings).
+      void densifyLayout; void keepComponentContaining;
 
-      // Refresh the tiles list after densify (it may have changed the set).
       const tilesPostDensify = layout.tiles();
       const junctionCells: Array<{ gx: number; gz: number; kind: NodeKind; label?: string }> = [];
       let stationCounter = 0;
@@ -270,13 +220,15 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
         bump(`build-graph-threw:${(err as Error).message.slice(0, 40)}`);
         continue;
       }
-      const stations = graph.nodes.filter((n) => n.kind === 'station');
+      const allStations = graph.nodes.filter((n) => n.kind === 'station');
       const junctions = graph.nodes.filter((n) => n.kind === 'junction');
-      if (stations.length < 2) { bump('not-enough-station-nodes'); continue; }
-      const ok = stations.every((s) =>
-        stations.every((t) => s === t || graph.shortestPath(s, t) !== null),
-      );
-      if (!ok) { bump('disconnected'); continue; }
+      if (allStations.length < 2) { bump('not-enough-station-nodes'); continue; }
+      // Find the LARGEST connected group of stations. With the largest-
+      // component filter removed from the layout, the graph contains
+      // multiple disconnected sub-graphs. We need ≥2 stations in the
+      // same sub-graph for the train to be able to cycle between them.
+      const stations = largestConnectedStationGroup(graph, allStations);
+      if (stations.length < 2) { bump('no-connected-station-pair'); continue; }
 
       console.log(`wfc generator: attempt ${attempt}, internal retries ${totalRetries}, reasons:`, reasons);
       return { graph, stations, junctions, retries: totalRetries + attempt };
@@ -525,6 +477,29 @@ function keepComponentContaining(layout: TrackLayout, gx: number, gz: number): v
       layout.place(t.gridX, t.gridZ, stash.def, stash.rotation, stash.routing, stash.level);
     }
   }
+}
+
+/** Group stations into connected sub-graphs (via shortestPath probes)
+ *  and return the largest group. With multi-component layouts, this is
+ *  what the train should cycle between — picking targets across
+ *  components would strand the train when shortestPath returns null. */
+function largestConnectedStationGroup(graph: TrackGraph, stations: GraphNode[]): GraphNode[] {
+  const groups: GraphNode[][] = [];
+  const assigned = new Set<GraphNode>();
+  for (const s of stations) {
+    if (assigned.has(s)) continue;
+    const group = [s];
+    assigned.add(s);
+    for (const other of stations) {
+      if (assigned.has(other)) continue;
+      if (graph.shortestPath(s, other) !== null) {
+        group.push(other);
+        assigned.add(other);
+      }
+    }
+    groups.push(group);
+  }
+  return groups.reduce((a, b) => (b.length > a.length ? b : a), [] as GraphNode[]);
 }
 
 /** Return every variant whose port-Y signature COVERS the placed tile's

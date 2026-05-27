@@ -34,6 +34,10 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    // Bind on all interfaces so Tailscale + LAN can hit the dev server.
+    // Without this, vite defaults to localhost and *.ts.net URLs don't
+    // resolve.
+    host: true,
     // Allow LAN previews via Bonjour (`*.local`) and direct LAN/Tailscale IPs.
     allowedHosts: ['.local', '.lan', '.ts.net'],
   },

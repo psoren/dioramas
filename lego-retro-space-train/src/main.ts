@@ -206,7 +206,7 @@ function wfcTrack(): void {
   if (firstRoll) {
     // First roll: use the strict generator (criteria-checked).
     let result: ReturnType<typeof generateWFCGraph> | null = null;
-    for (const size of [21, 17, 13]) {
+    for (const size of [13, 11, 9]) {
       try {
         result = generateWFCGraph({ size, rng: mulberry });
         console.log(`wfc ${size}x${size} (first roll) done after ${result.retries} retries`);
@@ -226,7 +226,7 @@ function wfcTrack(): void {
     // solve produces a layout that includes the cumulative tiles + new
     // ones placed in adjacency-compatible empty cells (often forming
     // additional disconnected loops).
-    for (const size of [21, 17, 13]) {
+    for (const size of [13, 11, 9]) {
       try {
         rolledLayout = extendWFCLayout(cumulativeLayout, { size, rng: mulberry });
         console.log(`wfc ${size}x${size} (additive) succeeded`);

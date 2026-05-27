@@ -40,6 +40,10 @@ import {
 import { portY } from './trackLayout';
 
 const ROTATIONS: readonly Rotation[] = [0, 1, 2, 3];
+// EMPTY kept in the variant pool (with crushed weight, see defaultWeight)
+// as the solver's "escape valve" — without it, boundary cells often have
+// no valid variant on 21×21 grids and WFC contradicts continuously. With
+// EMPTY at weight 0.005, it's still picked rarely vs track tiles.
 const TILE_DEFS: readonly TrackTileDef[] = [...ALL_TILES, EMPTY_TILE];
 
 export interface Variant {
@@ -124,7 +128,7 @@ function defaultWeight(def: TrackTileDef): number {
     case 'elevated-curve-ne': return 0.25;
     case 'station-n': return 0.4;
     case 'under-pass-nesw': return 0.3;
-    case 'empty': return 0.05;
+    case 'empty': return 0.005;
     default: return 1;
   }
 }
@@ -360,6 +364,47 @@ function pickLowestEntropyCell(
   }
   if (ties.length === 0) return null;
   return ties[Math.floor(rng() * ties.length)]!;
+}
+
+/** Frontier-biased observe: pick the lowest-entropy cell among those
+ *  ADJACENT to an already-collapsed cell. The "wavefront" WFC variant —
+ *  solution grows outward from existing collapses. NOT WIRED IN by
+ *  default: on large grids it's O(n²) per observe step which makes
+ *  21×21 solves unacceptably slow. Kept here so it can be swapped in
+ *  for small grids or post-pre-seed wavefronts later. */
+// @ts-expect-error unused but kept intentionally
+function pickFrontierCell(
+  cellOptions: Map<string, Set<string>>,
+  width: number,
+  height: number,
+  rng: () => number,
+): string | null {
+  let bestSize = Infinity;
+  const ties: string[] = [];
+  for (const [k, set] of cellOptions) {
+    if (set.size <= 1) continue;
+    const [x, y] = parseKey(k);
+    let hasCollapsedNeighbor = false;
+    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const nset = cellOptions.get(key(nx, ny));
+      if (nset && nset.size === 1) { hasCollapsedNeighbor = true; break; }
+    }
+    if (!hasCollapsedNeighbor) continue;
+    if (set.size < bestSize) {
+      bestSize = set.size;
+      ties.length = 0;
+      ties.push(k);
+    } else if (set.size === bestSize) {
+      ties.push(k);
+    }
+  }
+  if (ties.length > 0) return ties[Math.floor(rng() * ties.length)]!;
+  // No frontier — fall back to global lowest-entropy so we can seed a
+  // new region (covers the no-pre-seed case + post-wavefront restarts).
+  return pickLowestEntropyCell(cellOptions, rng);
 }
 
 function weightedPick(
