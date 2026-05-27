@@ -41,11 +41,13 @@ import {
 import { portY } from './trackLayout';
 
 const ROTATIONS: readonly Rotation[] = [0, 1, 2, 3];
-// EMPTY kept in the variant pool (with crushed weight, see defaultWeight)
-// as the solver's "escape valve" — without it, boundary cells often have
-// no valid variant on 21×21 grids and WFC contradicts continuously. With
-// EMPTY at weight 0.005, it's still picked rarely vs track tiles.
-const TILE_DEFS: readonly TrackTileDef[] = [...ALL_TILES, EMPTY_TILE];
+// EMPTY removed from the variant pool. Every cell MUST be a track
+// tile. Forces the solver to fill the entire grid instead of letting
+// EMPTY-clusters bunch the network into a corner. Disconnects produced
+// by adjacency-only WFC are handled by bridgeComponents +
+// keepOnlyLargestComponent in the generator.
+const TILE_DEFS: readonly TrackTileDef[] = [...ALL_TILES];
+void EMPTY_TILE;
 
 export interface Variant {
   /** Stable string id, e.g. "straight-ns@1". */

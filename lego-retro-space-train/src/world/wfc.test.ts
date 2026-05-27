@@ -20,15 +20,10 @@ describe('WFC adjacency table', () => {
     }
   });
 
-  it('EMPTY tile is allowed next to anything with no port on the shared side', () => {
+  it('EMPTY is excluded from the variant pool', () => {
     const variants = enumerateVariants(0);
-    const table = buildAdjacencyTable(variants);
-    const empty = variants.find((v) => v.def.kind === 'empty')!;
-    expect(empty).toBeDefined();
-    for (const id of table.allowed.get(empty.id)!.E) {
-      const neighbor = table.byId.get(id)!;
-      expect(neighbor.portY.W).toBeNull();
-    }
+    const empty = variants.find((v) => v.def.kind === 'empty');
+    expect(empty).toBeUndefined();
   });
 });
 

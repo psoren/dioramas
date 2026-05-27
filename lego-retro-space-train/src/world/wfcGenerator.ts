@@ -167,29 +167,17 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
       // so the output may have multiple disconnected blobs. Instead of
       // rejecting (which kills success rate), we find the LARGEST
       // connected component and drop every tile not in it.
-      // BRIDGE first: where two components are distance-1 apart (cells
-      // directly adjacent but their facing sides have null ports),
-      // upgrade both boundary tiles so they connect (STRAIGHT → TEE →
-      // CROSS as needed). Then drop whatever's still disconnected.
+      // BRIDGE first to merge what we can. With EMPTY removed from the
+      // variant pool, WFC fills every cell — but the result is many
+      // small components. Bridge upgrades adjacent boundary tiles so
+      // their ports connect (STRAIGHT → TEE → CROSS as needed).
       bridgeComponents(layout);
-      // Re-enabled the largest-component filter. We tried skipping it to
-      // keep more cells in the layout, but the graph builder then
-      // dead-ended on disconnected sub-clusters whose internal adjacency
-      // had subtle multi-level mismatches. The filter is the simplest
-      // way to guarantee a buildGraphFromLayout-safe layout.
+      // After bridging, keep only the largest connected component to
+      // guarantee buildGraphFromLayout has a clean topology.
       keepOnlyLargestComponent(layout);
-      // After dropping non-largest components, the kept blob's boundary
-      // tiles may have ports facing into dropped (now-empty) cells —
-      // visible as "tendrils" sticking off the network. Iteratively
-      // trim cells whose ports don't all match a neighbour. 1-port
-      // STATION tiles are exempt (their port IS the station's stub).
+      // Trim cells with unmatched ports + strip elevated chains that
+      // no ramp can reach.
       trimDeadEnds(layout);
-      // Strip "floating" upper decks: parallel-overpass or elevated
-      // chains that no ramp ever reaches. Without a ramp the elevated
-      // layer is unreachable from ground — visually a floating bridge.
-      // We BFS at Y=H from ramp high ports; primary tiles outside that
-      // reachable set get stripped (under-tile kept if it exists, so
-      // the lower track remains).
       if (stripUnreachableUpperDecks(layout)) trimDeadEnds(layout);
       const tiles = layout.tiles();
       if (tiles.length < 4) { bump('too-sparse-after-component-filter'); continue; }

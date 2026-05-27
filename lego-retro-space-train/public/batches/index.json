@@ -1,5 +1,640 @@
 [
   {
+    "batchId": "2026-05-27T23-45-25-7765e8b",
+    "commit": "7765e8b",
+    "timestamp": "2026-05-27T23:46:18.946Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 9,
+      "parallelTotal": 136,
+      "elevatedOK": 10,
+      "coverageMean": 0.81
+    },
+    "sets": [
+      {
+        "seed": 105406,
+        "ok": true,
+        "tiles": 177,
+        "parallel": 37,
+        "elevatedOK": true,
+        "elevatedThrough": 15,
+        "coverage": 0.976,
+        "cellsTotal": 123,
+        "cellsGround": 120,
+        "cellsElevated": 120,
+        "cellsUncovered": 3,
+        "firstRollCells": 177,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 102886,
+        "ok": true,
+        "tiles": 103,
+        "parallel": 10,
+        "elevatedOK": true,
+        "elevatedThrough": 7,
+        "coverage": 0.94,
+        "cellsTotal": 84,
+        "cellsGround": 79,
+        "cellsElevated": 79,
+        "cellsUncovered": 5,
+        "firstRollCells": 103,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 105244,
+        "ok": true,
+        "tiles": 109,
+        "parallel": 18,
+        "elevatedOK": true,
+        "elevatedThrough": 4,
+        "coverage": 0.949,
+        "cellsTotal": 79,
+        "cellsGround": 75,
+        "cellsElevated": 75,
+        "cellsUncovered": 4,
+        "firstRollCells": 109,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 103653,
+        "ok": true,
+        "tiles": 120,
+        "parallel": 15,
+        "elevatedOK": true,
+        "elevatedThrough": 13,
+        "coverage": 0.856,
+        "cellsTotal": 97,
+        "cellsGround": 83,
+        "cellsElevated": 83,
+        "cellsUncovered": 14,
+        "firstRollCells": 120,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 103761,
+        "ok": true,
+        "tiles": 119,
+        "parallel": 3,
+        "elevatedOK": true,
+        "elevatedThrough": 12,
+        "coverage": 0.935,
+        "cellsTotal": 108,
+        "cellsGround": 101,
+        "cellsElevated": 101,
+        "cellsUncovered": 7,
+        "firstRollCells": 119,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 106001,
+        "ok": true,
+        "tiles": 38,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 3,
+        "coverage": 0.853,
+        "cellsTotal": 34,
+        "cellsGround": 29,
+        "cellsElevated": 29,
+        "cellsUncovered": 5,
+        "firstRollCells": 38,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107109,
+        "ok": true,
+        "tiles": 115,
+        "parallel": 26,
+        "elevatedOK": true,
+        "elevatedThrough": 8,
+        "coverage": 0.952,
+        "cellsTotal": 83,
+        "cellsGround": 79,
+        "cellsElevated": 79,
+        "cellsUncovered": 4,
+        "firstRollCells": 115,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 110967,
+        "ok": true,
+        "tiles": 75,
+        "parallel": 3,
+        "elevatedOK": true,
+        "elevatedThrough": 8,
+        "coverage": 0.357,
+        "cellsTotal": 70,
+        "cellsGround": 25,
+        "cellsElevated": 25,
+        "cellsUncovered": 45,
+        "firstRollCells": 75,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 106016,
+        "ok": true,
+        "tiles": 117,
+        "parallel": 10,
+        "elevatedOK": true,
+        "elevatedThrough": 8,
+        "coverage": 0.287,
+        "cellsTotal": 101,
+        "cellsGround": 29,
+        "cellsElevated": 29,
+        "cellsUncovered": 72,
+        "firstRollCells": 117,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107838,
+        "ok": true,
+        "tiles": 73,
+        "parallel": 14,
+        "elevatedOK": true,
+        "elevatedThrough": 11,
+        "coverage": 1,
+        "cellsTotal": 53,
+        "cellsGround": 53,
+        "cellsElevated": 53,
+        "cellsUncovered": 0,
+        "firstRollCells": 73,
+        "addedByRoll2": 0
+      }
+    ],
+    "notes": "Iter 34: EMPTY removed, full pipeline (bridge → keepLargest → trim → strip → re-trim). Returns to the working state. Map-fill issue remains — WFC produces many disconnects that aren't bridgeable at distance 1, so most cells get dropped."
+  },
+  {
+    "batchId": "2026-05-27T23-42-39-7765e8b",
+    "commit": "7765e8b",
+    "timestamp": "2026-05-27T23:44:36.501Z",
+    "size": 13,
+    "stats": {
+      "solves": 0,
+      "total": 10,
+      "layoutsWithParallel": 0,
+      "parallelTotal": 0,
+      "elevatedOK": 0,
+      "coverageMean": 0
+    },
+    "sets": [
+      {
+        "seed": 109656,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-5,-6) y=0\":11,\"build-graph-threw:traceEdge hit dead end at (-1,-3) y=0\":1,\"build-graph-threw:trac"
+      },
+      {
+        "seed": 101454,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,3) y=0\":7,\"build-graph-threw:Cannot read properties of undefined (rea\":39,\"build-graph-threw:tr"
+      },
+      {
+        "seed": 103227,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-4,-5) y=0\":3,\"build-graph-threw:traceEdge hit dead end at (-6,5) y=0\":7,\"build-graph-threw:traceE"
+      },
+      {
+        "seed": 105288,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":23,\"build-graph-threw:traceEdge hit dead end at (-2,2) y=0\":1,\"build-graph-threw:trace"
+      },
+      {
+        "seed": 107459,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-5,0) y=0\":9,\"build-graph-threw:traceEdge hit dead end at (-4,1) y=0\":1,\"build-graph-threw:traceEd"
+      },
+      {
+        "seed": 109881,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":47,\"build-graph-threw:traceEdge hit dead end at (-4,-1) y=0\":4,\"build-graph-threw:t"
+      },
+      {
+        "seed": 113124,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":50,\"build-graph-threw:traceEdge hit dead end at (-6,-6) y=0\":1,\"build-graph-threw:t"
+      },
+      {
+        "seed": 105668,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":38,\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":18,\"build-graph-threw:"
+      },
+      {
+        "seed": 108587,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":14,\"build-graph-threw:traceEdge hit dead end at (-5,-4) y=0\":2,\"build-graph-threw:trac"
+      },
+      {
+        "seed": 111159,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":42,\"build-graph-threw:traceEdge hit dead end at (-6,-3) y=0\":5,\"build-graph-threw:t"
+      }
+    ],
+    "notes": "Iter 33: EMPTY removed + no keep-largest + trim ON + strip OFF. Trim is load-bearing for graph build; strip was over-aggressive. Hoping for full grid fill."
+  },
+  {
+    "batchId": "2026-05-27T23-40-18-7765e8b",
+    "commit": "7765e8b",
+    "timestamp": "2026-05-27T23:42:07.973Z",
+    "size": 13,
+    "stats": {
+      "solves": 0,
+      "total": 10,
+      "layoutsWithParallel": 0,
+      "parallelTotal": 0,
+      "elevatedOK": 0,
+      "coverageMean": 0
+    },
+    "sets": [
+      {
+        "seed": 108577,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":49,\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":17,\"build-graph-threw:"
+      },
+      {
+        "seed": 110547,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-5,-5) y=0\":2,\"build-graph-threw:traceEdge hit dead end at (-6,3) y=0\":6,\"build-graph-threw:traceE"
+      },
+      {
+        "seed": 101726,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,0) y=0\":5,\"build-graph-threw:Cannot read properties of undefined (rea\":48,\"build-graph-threw:tr"
+      },
+      {
+        "seed": 103853,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,-1) y=0\":9,\"build-graph-threw:Cannot read properties of undefined (rea\":42,\"build-graph-threw:t"
+      },
+      {
+        "seed": 106019,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-5,-5) y=0\":4,\"build-graph-threw:Cannot read properties of undefined (rea\":40,\"build-graph-threw:t"
+      },
+      {
+        "seed": 107595,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":17,\"build-graph-threw:traceEdge hit dead end at (-6,-6) y=0\":2,\"build-graph-threw:trac"
+      },
+      {
+        "seed": 109510,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-6,-1) y=0\":3,\"build-graph-threw:traceEdge hit dead end at (-4,-3) y=0\":5,\"build-graph-threw:trace"
+      },
+      {
+        "seed": 111342,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":45,\"build-graph-threw:traceEdge hit dead end at (-6,-2) y=0\":6,\"build-graph-threw:t"
+      },
+      {
+        "seed": 112465,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:traceEdge hit dead end at (-5,3) y=0\":2,\"build-graph-threw:traceEdge hit dead end at (-6,-5) y=0\":25,\"build-graph-threw:trace"
+      },
+      {
+        "seed": 114300,
+        "ok": false,
+        "error": "WFC generator: exceeded 200 pipeline retries. reasons: {\"build-graph-threw:Cannot read properties of undefined (rea\":47,\"build-graph-threw:traceEdge hit dead end at (-6,-6) y=0\":4,\"build-graph-threw:t"
+      }
+    ],
+    "notes": "Iter 32: disable trim + strip too. Every cell has track (EMPTY removed), all components kept, no removals. Should fill the full grid."
+  },
+  {
+    "batchId": "2026-05-27T23-38-52-7765e8b",
+    "commit": "7765e8b",
+    "timestamp": "2026-05-27T23:39:45.262Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 5,
+      "parallelTotal": 24,
+      "elevatedOK": 6,
+      "coverageMean": 0.215
+    },
+    "sets": [
+      {
+        "seed": 102140,
+        "ok": true,
+        "tiles": 58,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 3,
+        "coverage": 0.345,
+        "cellsTotal": 58,
+        "cellsGround": 20,
+        "cellsElevated": 20,
+        "cellsUncovered": 38,
+        "firstRollCells": 58,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 108589,
+        "ok": true,
+        "tiles": 41,
+        "parallel": 2,
+        "elevatedOK": true,
+        "elevatedThrough": 2,
+        "coverage": 0.081,
+        "cellsTotal": 37,
+        "cellsGround": 3,
+        "cellsElevated": 3,
+        "cellsUncovered": 34,
+        "firstRollCells": 41,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 109821,
+        "ok": true,
+        "tiles": 37,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 2,
+        "coverage": 0.378,
+        "cellsTotal": 37,
+        "cellsGround": 14,
+        "cellsElevated": 14,
+        "cellsUncovered": 23,
+        "firstRollCells": 37,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 108013,
+        "ok": true,
+        "tiles": 51,
+        "parallel": 4,
+        "elevatedOK": true,
+        "elevatedThrough": 3,
+        "coverage": 0.14,
+        "cellsTotal": 43,
+        "cellsGround": 6,
+        "cellsElevated": 6,
+        "cellsUncovered": 37,
+        "firstRollCells": 51,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 110360,
+        "ok": true,
+        "tiles": 71,
+        "parallel": 5,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.3,
+        "cellsTotal": 60,
+        "cellsGround": 18,
+        "cellsElevated": 0,
+        "cellsUncovered": 42,
+        "firstRollCells": 71,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 112044,
+        "ok": true,
+        "tiles": 78,
+        "parallel": 4,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "coverage": 0.318,
+        "cellsTotal": 66,
+        "cellsGround": 21,
+        "cellsElevated": 0,
+        "cellsUncovered": 45,
+        "firstRollCells": 78,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107783,
+        "ok": true,
+        "tiles": 29,
+        "parallel": 0,
+        "elevatedOK": false,
+        "elevatedThrough": 0,
+        "coverage": 0.138,
+        "cellsTotal": 29,
+        "cellsGround": 4,
+        "cellsElevated": 0,
+        "cellsUncovered": 25,
+        "firstRollCells": 29,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 105592,
+        "ok": true,
+        "tiles": 160,
+        "parallel": 9,
+        "elevatedOK": true,
+        "elevatedThrough": 7,
+        "coverage": 0.014,
+        "cellsTotal": 142,
+        "cellsGround": 2,
+        "cellsElevated": 2,
+        "cellsUncovered": 140,
+        "firstRollCells": 160,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 112639,
+        "ok": true,
+        "tiles": 30,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 2,
+        "coverage": 0.067,
+        "cellsTotal": 30,
+        "cellsGround": 2,
+        "cellsElevated": 2,
+        "cellsUncovered": 28,
+        "firstRollCells": 30,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 109518,
+        "ok": true,
+        "tiles": 30,
+        "parallel": 0,
+        "elevatedOK": false,
+        "elevatedThrough": 1,
+        "coverage": 0.367,
+        "cellsTotal": 30,
+        "cellsGround": 11,
+        "cellsElevated": 0,
+        "cellsUncovered": 19,
+        "firstRollCells": 30,
+        "addedByRoll2": 0
+      }
+    ],
+    "notes": "Iter 31: EMPTY removed + skip keepOnlyLargestComponent. WFC fills every cell; bridge merges what it can; all components remain visible. Train rides only the largest connected sub-graph but the rest is visible scenery filling the plate."
+  },
+  {
+    "batchId": "2026-05-27T23-37-29-7765e8b",
+    "commit": "7765e8b",
+    "timestamp": "2026-05-27T23:38:01.415Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 10,
+      "parallelTotal": 137,
+      "elevatedOK": 10,
+      "coverageMean": 0.632
+    },
+    "sets": [
+      {
+        "seed": 109289,
+        "ok": true,
+        "tiles": 100,
+        "parallel": 20,
+        "elevatedOK": true,
+        "elevatedThrough": 9,
+        "coverage": 1,
+        "cellsTotal": 70,
+        "cellsGround": 70,
+        "cellsElevated": 70,
+        "cellsUncovered": 0,
+        "firstRollCells": 100,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 110571,
+        "ok": true,
+        "tiles": 103,
+        "parallel": 30,
+        "elevatedOK": true,
+        "elevatedThrough": 5,
+        "coverage": 0.957,
+        "cellsTotal": 69,
+        "cellsGround": 66,
+        "cellsElevated": 66,
+        "cellsUncovered": 3,
+        "firstRollCells": 103,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 102040,
+        "ok": true,
+        "tiles": 138,
+        "parallel": 31,
+        "elevatedOK": true,
+        "elevatedThrough": 6,
+        "coverage": 0.563,
+        "cellsTotal": 103,
+        "cellsGround": 58,
+        "cellsElevated": 58,
+        "cellsUncovered": 45,
+        "firstRollCells": 138,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107273,
+        "ok": true,
+        "tiles": 68,
+        "parallel": 1,
+        "elevatedOK": true,
+        "elevatedThrough": 7,
+        "coverage": 0.422,
+        "cellsTotal": 64,
+        "cellsGround": 27,
+        "cellsElevated": 27,
+        "cellsUncovered": 37,
+        "firstRollCells": 68,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 111265,
+        "ok": true,
+        "tiles": 167,
+        "parallel": 11,
+        "elevatedOK": true,
+        "elevatedThrough": 17,
+        "coverage": 0.389,
+        "cellsTotal": 144,
+        "cellsGround": 56,
+        "cellsElevated": 56,
+        "cellsUncovered": 88,
+        "firstRollCells": 167,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107052,
+        "ok": true,
+        "tiles": 124,
+        "parallel": 12,
+        "elevatedOK": true,
+        "elevatedThrough": 12,
+        "coverage": 0.111,
+        "cellsTotal": 99,
+        "cellsGround": 11,
+        "cellsElevated": 11,
+        "cellsUncovered": 88,
+        "firstRollCells": 124,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 105044,
+        "ok": true,
+        "tiles": 74,
+        "parallel": 11,
+        "elevatedOK": true,
+        "elevatedThrough": 4,
+        "coverage": 0.864,
+        "cellsTotal": 59,
+        "cellsGround": 51,
+        "cellsElevated": 51,
+        "cellsUncovered": 8,
+        "firstRollCells": 74,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 113780,
+        "ok": true,
+        "tiles": 60,
+        "parallel": 8,
+        "elevatedOK": true,
+        "elevatedThrough": 3,
+        "coverage": 1,
+        "cellsTotal": 48,
+        "cellsGround": 48,
+        "cellsElevated": 48,
+        "cellsUncovered": 0,
+        "firstRollCells": 60,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 115831,
+        "ok": true,
+        "tiles": 68,
+        "parallel": 9,
+        "elevatedOK": true,
+        "elevatedThrough": 8,
+        "coverage": 0.945,
+        "cellsTotal": 55,
+        "cellsGround": 52,
+        "cellsElevated": 52,
+        "cellsUncovered": 3,
+        "firstRollCells": 68,
+        "addedByRoll2": 0
+      },
+      {
+        "seed": 107548,
+        "ok": true,
+        "tiles": 79,
+        "parallel": 4,
+        "elevatedOK": true,
+        "elevatedThrough": 3,
+        "coverage": 0.07,
+        "cellsTotal": 71,
+        "cellsGround": 5,
+        "cellsElevated": 5,
+        "cellsUncovered": 66,
+        "firstRollCells": 79,
+        "addedByRoll2": 0
+      }
+    ],
+    "notes": "Iter 30: removed EMPTY entirely from variant pool. Every cell must be a track tile. WFC adjacency + boundary constraints force a fully-tiled grid; bridgeComponents merges disconnects + keepOnlyLargestComponent drops remainder."
+  },
+  {
     "batchId": "2026-05-27T21-06-59-7c82775",
     "commit": "7c82775",
     "timestamp": "2026-05-27T21:07:35.284Z",
