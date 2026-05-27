@@ -1,0 +1,98 @@
+[
+  {
+    "batchId": "2026-05-27T16-41-45-a48b819",
+    "commit": "a48b819",
+    "timestamp": "2026-05-27T16:41:46.401Z",
+    "size": 13,
+    "stats": {
+      "solves": 10,
+      "total": 10,
+      "layoutsWithParallel": 6,
+      "parallelTotal": 23,
+      "elevatedOK": 6
+    },
+    "sets": [
+      {
+        "seed": 105040,
+        "ok": true,
+        "tiles": 62,
+        "parallel": 8,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 105884,
+        "ok": true,
+        "tiles": 80,
+        "parallel": 4,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 106665,
+        "ok": true,
+        "tiles": 57,
+        "parallel": 2,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 107644,
+        "ok": true,
+        "tiles": 44,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 108506,
+        "ok": true,
+        "tiles": 73,
+        "parallel": 3,
+        "elevatedOK": false,
+        "elevatedThrough": 0
+      },
+      {
+        "seed": 109282,
+        "ok": true,
+        "tiles": 81,
+        "parallel": 3,
+        "elevatedOK": false,
+        "elevatedThrough": 1
+      },
+      {
+        "seed": 110060,
+        "ok": true,
+        "tiles": 94,
+        "parallel": 3,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 111021,
+        "ok": true,
+        "tiles": 60,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      },
+      {
+        "seed": 111958,
+        "ok": true,
+        "tiles": 54,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 2
+      },
+      {
+        "seed": 112893,
+        "ok": true,
+        "tiles": 91,
+        "parallel": 0,
+        "elevatedOK": true,
+        "elevatedThrough": 3
+      }
+    ],
+    "notes": "Baseline: parallel-overpass placement is unreliable (~50% of rolls have any); elevated trace dead-ends on ~40% of layouts that DO have overpasses. Next: bump parallel-overpass weight + diagnose preferPrimary dead-ends."
+  }
+]

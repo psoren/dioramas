@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WFC Iteration Dashboard</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: #0f0f15;
+      color: #ddd;
+      padding: 16px;
+    }
+    h1 { margin: 0 0 4px; font-weight: 600; font-size: 18px; letter-spacing: 0.04em; }
+    .subtitle { color: #888; font-size: 12px; margin-bottom: 24px; }
+    .batch {
+      background: #15151d;
+      border: 1px solid #232330;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+    }
+    .batch h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: #aaa;
+    }
+    .batch h2 code {
+      background: #232333;
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: #c7c7e0;
+      margin-right: 6px;
+    }
+    .stats {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: #999;
+      margin: 6px 0 8px;
+    }
+    .stats .good { color: #5e5; }
+    .stats .bad { color: #f77; }
+    .notes {
+      background: #1d1d28;
+      border-left: 3px solid #4a8;
+      padding: 8px 10px;
+      margin: 8px 0 14px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      color: #d3d3d3;
+    }
+    .notes.empty { color: #555; font-style: italic; }
+    .sets {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .set {
+      background: #0d0d14;
+      border: 1px solid #22222e;
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .set img, .set svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      image-rendering: pixelated;
+    }
+    .set .meta {
+      font-family: ui-monospace, monospace;
+      font-size: 10px;
+      color: #888;
+      margin-top: 6px;
+    }
+    .set .meta.fail { color: #f77; }
+    .set .meta .ok { color: #5e5; }
+  </style>
+</head>
+<body>
+  <h1>WFC Generation Iterations</h1>
+  <div class="subtitle">Newest batch on top. Each batch is 10 layouts at 13×13.</div>
+  <div id="batches"></div>
+  <script>
+    async function load() {
+      const res = await fetch('/batches/index.json', { cache: 'no-store' });
+      if (!res.ok) {
+        document.getElementById('batches').innerHTML =
+          '<div class="batch">No batches yet — run <code>npx vitest run scripts/render-batch</code>.</div>';
+        return;
+      }
+      const batches = await res.json();
+      const root = document.getElementById('batches');
+      for (const batch of batches) {
+        const div = document.createElement('div');
+        div.className = 'batch';
+        const dt = new Date(batch.timestamp);
+        const okPct = ((batch.stats.solves / batch.stats.total) * 100).toFixed(0);
+        const parallelPct = ((batch.stats.layoutsWithParallel / batch.stats.total) * 100).toFixed(0);
+        const elevatedPct = ((batch.stats.elevatedOK / batch.stats.total) * 100).toFixed(0);
+        div.innerHTML = `
+          <h2><code>${batch.commit}</code>${dt.toLocaleString()}</h2>
+          <div class="stats">
+            solves: <span class="${batch.stats.solves === batch.stats.total ? 'good' : 'bad'}">${batch.stats.solves}/${batch.stats.total}</span> (${okPct}%)
+            • parallel: <span class="${batch.stats.layoutsWithParallel >= 7 ? 'good' : 'bad'}">${batch.stats.layoutsWithParallel}/${batch.stats.total}</span> (${parallelPct}%)
+            • elevated graph: <span class="${batch.stats.elevatedOK >= 7 ? 'good' : 'bad'}">${batch.stats.elevatedOK}/${batch.stats.total}</span> (${elevatedPct}%)
+            • parallel cells total: ${batch.stats.parallelTotal}
+          </div>
+          <div class="notes ${batch.notes ? '' : 'empty'}">${batch.notes || 'No notes yet.'}</div>
+          <div class="sets">
+            ${batch.sets.map((s, i) => {
+              if (!s.ok) {
+                return `<div class="set"><div class="meta fail">FAIL: ${escapeHtml(s.error || 'unknown')}</div></div>`;
+              }
+              const parallelTag = (s.parallel ?? 0) > 0 ? `parallel=${s.parallel}` : 'parallel=0';
+              const elevTag = s.elevatedOK ? '<span class="ok">elev✓</span>' : 'elev✗';
+              return `
+                <div class="set">
+                  <img src="/batches/${batch.batchId}/set-${i + 1}.svg" alt="set ${i + 1}">
+                  <div class="meta">seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag}</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+        root.appendChild(div);
+      }
+    }
+    function escapeHtml(s) {
+      return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+    load();
+  </script>
+</body>
+</html>
