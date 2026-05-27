@@ -205,9 +205,19 @@ export class TrackGraph {
  * Throws if a walk hits a dead end or encounters a 3+-port tile that wasn't
  * declared as a junction.
  */
+export interface BuildGraphOptions {
+  /** Pass to layout.getAtVia at every trace step. When true the trace
+   *  prefers the PRIMARY tile at ambiguous transitions (multi-Y cells)
+   *  — used to build the elevated graph that ramps up through parallel
+   *  overpasses. Default behavior (false) stays on the straight-through
+   *  layer (ground at Y=0). */
+  preferPrimary?: boolean;
+}
+
 export function buildGraphFromLayout(
   layout: TrackLayout,
   junctionCells: ReadonlyArray<{ gx: number; gz: number; kind: NodeKind; label?: string }>,
+  opts?: BuildGraphOptions,
 ): TrackGraph {
   const graph = new TrackGraph(layout);
   const junctionSet = new Set<string>();
@@ -259,7 +269,7 @@ export function buildGraphFromLayout(
       // All declared junctions (TEE/CROSS/station) are at ground level, so
       // the trace starts at y=0. Y tracking inside the trace handles
       // RAMP transitions and stacked under-pass tiles.
-      const traced = traceEdgeFromPort(layout, gx, gz, port, 0, junctionSet);
+      const traced = traceEdgeFromPort(layout, gx, gz, port, 0, junctionSet, opts);
       visitedPort.add(`${traced.toGx},${traced.toGz}:${traced.toEntry}`);
 
       const fromSubs = subNodesUsingPort(graph, gx, gz, port);
@@ -270,7 +280,7 @@ export function buildGraphFromLayout(
       for (const fromNode of fromSubs) {
         for (const toNode of toSubs) {
           const curve = buildEdgeCurve(
-            layout, fromNode, port, toNode, traced.toEntry, traced.midCells,
+            layout, fromNode, port, toNode, traced.toEntry, traced.midCells, opts,
           );
           graph.addEdge(
             fromNode, toNode, curve, traced.midCells, port, traced.toEntry,
@@ -384,6 +394,7 @@ function traceEdgeFromPort(
   exitPort: Direction,
   startY: number,
   junctionSet: ReadonlySet<string>,
+  opts?: BuildGraphOptions,
 ): {
   midCells: Array<readonly [number, number]>;
   toGx: number;
@@ -399,7 +410,7 @@ function traceEdgeFromPort(
   for (let safety = 0; safety < 512; safety++) {
     const key = `${cx},${cz}`;
     if (junctionSet.has(key)) return { midCells: mid, toGx: cx, toGz: cz, toEntry: entry };
-    const tile = layout.getAtVia(cx, cz, currentY, entry);
+    const tile = layout.getAtVia(cx, cz, currentY, entry, { preferPrimary: opts?.preferPrimary });
     if (!tile) throw new Error(`traceEdge hit dead end at (${cx},${cz}) y=${currentY}`);
     const ports = effectivePorts(tile);
     if (ports.length !== 2) {
@@ -447,6 +458,7 @@ function buildEdgeCurve(
   to: GraphNode,
   entryPort: Direction,
   midCells: ReadonlyArray<readonly [number, number]>,
+  opts?: BuildGraphOptions,
 ): THREE.CatmullRomCurve3 {
   const SAMPLES_PER_TILE = 20;
   const points: THREE.Vector3[] = [];
@@ -459,16 +471,18 @@ function buildEdgeCurve(
   appendJunctionHalf(points, fromTile, from, exitPort);
 
   // Mid cells — Y-aware lookup so a stacked under-pass cell uses the
-  // correct tile. Consecutive ramp cells with matching rotation are
-  // collapsed into one "ramp run" and re-sampled with a single cosine
-  // S-curve so multi-cell ramps stay wave-free (slope is continuous
-  // across cell boundaries, peaks once at the run's middle).
+  // correct tile. getAtVia (with the same preferPrimary as the trace
+  // that emitted this edge) picks the matching layer when both
+  // primary + under straddle currentY at the entry side. Consecutive
+  // ramp cells with matching rotation are collapsed into one "ramp
+  // run" and re-sampled with a single cosine S-curve so multi-cell
+  // ramps stay wave-free.
   let entry = opposite(exitPort);
   let currentY = portY(fromTile, exitPort);
   let i = 0;
   while (i < midCells.length) {
     const [gx, gz] = midCells[i]!;
-    const tile = layout.getAt(gx, gz, currentY) ?? layout.get(gx, gz);
+    const tile = layout.getAtVia(gx, gz, currentY, entry, { preferPrimary: opts?.preferPrimary }) ?? layout.get(gx, gz);
     if (!tile) throw new Error(`midcell (${gx},${gz}) missing`);
     if (tile.def.kind === 'ramp-ns') {
       // Find the run end: consecutive ramp cells with the same rotation.

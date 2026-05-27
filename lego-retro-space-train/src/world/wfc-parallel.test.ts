@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateWFCGraph } from './wfcGenerator';
+import { generateWFCGraph, extractGraphFromLayout } from './wfcGenerator';
 
 // Quick probe — do parallel-overpass cells ever survive into the final
 // layout? They form isolated rings so keepOnlyLargestComponent drops
@@ -40,6 +40,39 @@ describe('parallel overpass probe', () => {
     console.log(`\nparallel-overpass probe (${solves}/30 solves):`);
     console.log(`  layouts with ≥1 parallel-overpass cell: ${layoutsWithParallel}/${solves}`);
     console.log(`  total parallel cells across all solves: ${totalParallelCells}`);
+    expect(solves).toBeGreaterThan(0);
+  }, 90000);
+
+  it('elevated graph builds (preferPrimary) and has through-stations sometimes', () => {
+    const size = 13;
+    let solves = 0;
+    let elevatedBuilds = 0;
+    let elevatedWithThroughStations = 0;
+    let elevatedThrows = 0;
+    for (let i = 0; i < 30; i++) {
+      const seed = 5_000 + i * 197;
+      let s = seed;
+      const rng = () => {
+        s |= 0; s = (s + 0x6D2B79F5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+      let main: ReturnType<typeof generateWFCGraph>;
+      try { main = generateWFCGraph({ size, rng, maxRetries: 200 }); }
+      catch { continue; }
+      solves++;
+      try {
+        const elev = extractGraphFromLayout(main.graph.layout, rng, { preferPrimary: true });
+        elevatedBuilds++;
+        const through = elev.stations.filter((s) => s.edges.length >= 2);
+        if (through.length >= 2) elevatedWithThroughStations++;
+      } catch { elevatedThrows++; }
+    }
+    console.log(`\nelevated graph probe (${solves}/30 solves):`);
+    console.log(`  elevated builds:                 ${elevatedBuilds}/${solves}`);
+    console.log(`  elevated has ≥2 through-stations ${elevatedWithThroughStations}/${solves}`);
+    console.log(`  elevated build threw:            ${elevatedThrows}/${solves}`);
     expect(solves).toBeGreaterThan(0);
   }, 90000);
 });

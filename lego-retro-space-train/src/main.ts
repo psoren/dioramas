@@ -41,6 +41,7 @@ import { JunctionTrack } from './entities/JunctionTrack';
 import { GraphTrain } from './entities/GraphTrain';
 import { generateRandomGraphTrack } from './world/trackGraphGenerators';
 import { generateWFCGraph, extractGraphFromLayout, extendWFCLayout } from './world/wfcGenerator';
+import type { GraphNode, TrackGraph } from './world/trackGraph';
 import { TrackLayout } from './world/trackLayout';
 import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
 
@@ -177,11 +178,39 @@ function placeTrackOnGraph(
       update: () => updateSwitches(track, train, graph),
     };
     randomEntities.push(sim.add(switchUpdater));
-    // Second train: same graph, different start position (halfway
-    // around the cycle) and a contrasting colour. Visually conveys
-    // "two trains on the network" and where the parallel-overpass
-    // section exists, one train may be passing under/over the other.
-    if (targets.length >= 3) {
+    // Second train: build an ELEVATED graph from the same layout where
+    // the trace prefers the primary tile at multi-Y transitions. The
+    // edges through parallel-overpass sections then climb to the upper
+    // layer, so train 2 visibly rides over train 1 wherever WFC placed
+    // an overpass. If the elevated graph has no through-stations we
+    // fall back to running on the ground graph at a half-cycle offset.
+    let elevatedTargets: GraphNode[] | null = null;
+    let elevatedGraph: TrackGraph | null = null;
+    try {
+      const elevated = extractGraphFromLayout(graph.layout, Math.random, { preferPrimary: true });
+      const through = elevated.stations.filter((s) => s.edges.length >= 2);
+      if (through.length >= 2) {
+        elevatedGraph = elevated.graph;
+        elevatedTargets = through;
+      }
+    } catch (err) {
+      console.warn('elevated graph build failed; train 2 falls back to ground', err);
+    }
+    if (elevatedGraph && elevatedTargets) {
+      const elevatedTrack = sim.add(new JunctionTrack({
+        graph: elevatedGraph,
+        position: [0, 0.02, 0],
+        deckColor: new THREE.Color().setHSL(Math.random(), 0.55, 0.55).getHex(),
+      }));
+      randomEntities.push(elevatedTrack);
+      const train2 = sim.add(new GraphTrain({
+        graph: elevatedGraph,
+        targetCycle: elevatedTargets,
+        startAt: elevatedTargets[0],
+      }));
+      train2.object3d.position.y += 0.02;
+      randomEntities.push(train2);
+    } else if (targets.length >= 3) {
       const startIdx = Math.floor(targets.length / 2);
       const train2 = sim.add(new GraphTrain({
         graph,

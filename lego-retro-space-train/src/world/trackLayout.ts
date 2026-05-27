@@ -186,14 +186,20 @@ export class TrackLayout {
     gz: number,
     atY: number,
     entry: Direction,
-    tol = 0.01,
+    opts?: { preferPrimary?: boolean; tol?: number },
   ): PlacedTile | undefined {
+    const tol = opts?.tol ?? 0.01;
     const opp = ({ N: 'S', E: 'W', S: 'N', W: 'E' } as const)[entry];
     const primary = this.cells.get(key(gx, gz));
     const under = this.underCells.get(key(gx, gz));
     const pHasEntry = !!(primary && tileHasPortAtSideAtY(primary, entry, atY, tol));
     const uHasEntry = !!(under && tileHasPortAtSideAtY(under, entry, atY, tol));
     if (pHasEntry && uHasEntry) {
+      // preferPrimary: caller wants the trace to "go up" through ramp/
+      // elevated tiles at ambiguous transitions. Used by the elevated-
+      // graph build so train 2 climbs to the upper layer through
+      // parallel-overpass transitions instead of staying on ground.
+      if (opts?.preferPrimary) return primary!;
       const pStraight = tileHasPortAtSideAtY(primary!, opp, atY, tol);
       const uStraight = tileHasPortAtSideAtY(under!, opp, atY, tol);
       if (uStraight && !pStraight) return under!;

@@ -687,6 +687,7 @@ export function extendWFCLayout(
 export function extractGraphFromLayout(
   layout: TrackLayout,
   rng: () => number = Math.random,
+  opts?: { preferPrimary?: boolean },
 ): { graph: TrackGraph; stations: GraphNode[]; junctions: GraphNode[] } {
   const tiles = layout.tiles();
   const junctionCells: Array<{ gx: number; gz: number; kind: NodeKind; label?: string }> = [];
@@ -719,7 +720,7 @@ export function extractGraphFromLayout(
     junctionCells.push({ gx: t.gridX, gz: t.gridZ, kind: 'station', label: stationLabel() });
     claimedCells.add(`${t.gridX},${t.gridZ}`);
   }
-  const graph = buildGraphFromLayout(layout, junctionCells);
+  const graph = buildGraphFromLayout(layout, junctionCells, opts);
   const stations = graph.nodes.filter((n) => n.kind === 'station');
   const junctions = graph.nodes.filter((n) => n.kind === 'junction');
   return { graph, stations, junctions };
