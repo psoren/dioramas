@@ -204,12 +204,12 @@ function placeTrackOnGraph(
       console.warn('elevated graph build failed; train 2 falls back to ground', err);
     }
     if (elevatedGraph && elevatedTargets) {
-      const elevatedTrack = sim.add(new JunctionTrack({
-        graph: elevatedGraph,
-        position: [0, 0.02, 0],
-        deckColor: new THREE.Color().setHSL(Math.random(), 0.55, 0.55).getHex(),
-      }));
-      randomEntities.push(elevatedTrack);
+      // No second JunctionTrack: the ground JunctionTrack already
+      // renders the upper deck at every parallel-overpass cell (its
+      // dedicated render pass). A second track entity here would
+      // re-render every cell the elevated graph touches — most of
+      // which are ground cells the first JunctionTrack already drew,
+      // causing visible deck duplication.
       const train2 = sim.add(new GraphTrain({
         graph: elevatedGraph,
         targetCycle: elevatedTargets,
