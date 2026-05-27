@@ -61,11 +61,12 @@ describe('render WFC batch', () => {
           const isPrimaryElevated = t.def.kind === 'elevated-straight-ns' || t.def.kind === 'elevated-curve-ne';
           if (isPrimaryElevated && t.rotation === under.rotation) parallel++;
         }
-        // Coverage: walk what the trains ACTUALLY ride (shortest path
-        // through-station → through-station → ... → wraparound), collect
-        // every cell touched by every edge in those cycles, compare to
-        // the full layout to expose decorative-only cells.
-        const groundCovered = trainCycleCells(result.graph, result.stations.filter((st) => st.edges.length >= 2));
+        // Coverage: walk what the trains ACTUALLY ride. The cycle visits
+        // every through-station; shortest paths between consecutive
+        // targets are summed. (Adding junctions made coverage WORSE
+        // because each leg shrinks and overlaps with adjacent legs.)
+        const groundTargets = result.stations.filter((st) => st.edges.length >= 2);
+        const groundCovered = trainCycleCells(result.graph, groundTargets);
         let elevatedOK = false;
         let elevatedThrough = 0;
         let elevatedErr: string | undefined;

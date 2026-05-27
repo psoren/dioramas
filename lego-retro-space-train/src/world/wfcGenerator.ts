@@ -228,7 +228,7 @@ export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
         const j = Math.floor(rng() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
       }
-      for (let i = 0; i < Math.min(2, shuffled.length); i++) {
+      for (let i = 0; i < Math.min(20, shuffled.length); i++) {
         const t = shuffled[i]!;
         junctionCells.push({ gx: t.gridX, gz: t.gridZ, kind: 'station', label: stationLabel() });
         claimedCells.add(`${t.gridX},${t.gridZ}`);
@@ -715,7 +715,7 @@ export function extractGraphFromLayout(
     const j = Math.floor(rng() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
   }
-  for (let i = 0; i < Math.min(2, shuffled.length); i++) {
+  for (let i = 0; i < Math.min(20, shuffled.length); i++) {
     const t = shuffled[i]!;
     junctionCells.push({ gx: t.gridX, gz: t.gridZ, kind: 'station', label: stationLabel() });
     claimedCells.add(`${t.gridX},${t.gridZ}`);
