@@ -9,7 +9,7 @@ import {
   sampleWorldPath,
 } from './trackTile';
 import type { PlacedTile } from './trackTile';
-import { TrackLayout } from './trackLayout';
+import { TrackLayout, portY } from './trackLayout';
 
 // ---------------------------------------------------------------------------
 // Track graph: nodes (junctions / stations) connected by edges (track
@@ -250,7 +250,10 @@ export function buildGraphFromLayout(
       // is a buffer/terminator (e.g. station at the end of a spur). Skip.
       const [pdx, pdz] = dirVector(port);
       if (!layout.get(gx + pdx, gz + pdz)) continue;
-      const traced = traceEdgeFromPort(layout, gx, gz, port, junctionSet);
+      // All declared junctions (TEE/CROSS/station) are at ground level, so
+      // the trace starts at y=0. Y tracking inside the trace handles
+      // RAMP transitions and stacked under-pass tiles.
+      const traced = traceEdgeFromPort(layout, gx, gz, port, 0, junctionSet);
       visitedPort.add(`${traced.toGx},${traced.toGz}:${traced.toEntry}`);
 
       const fromSubs = subNodesUsingPort(graph, gx, gz, port);
@@ -309,13 +312,16 @@ function mainPortsOf(ports: readonly Direction[]): Direction[] {
   return ports.filter((p) => ports.includes(opposite(p)));
 }
 
-/** Walk outward from a junction along the given exit port. Returns the cells
- *  passed through and the landing junction. */
+/** Walk outward from a junction along the given exit port. The walker is
+ *  Y-aware so it can pass UNDER a stacked elevated tile (using the
+ *  ground-level under-tile) or OVER (the elevated primary tile) — picks
+ *  whichever tile has a port at the current Y. */
 function traceEdgeFromPort(
   layout: TrackLayout,
   fromGx: number,
   fromGz: number,
   exitPort: Direction,
+  startY: number,
   junctionSet: ReadonlySet<string>,
 ): {
   midCells: Array<readonly [number, number]>;
@@ -327,12 +333,13 @@ function traceEdgeFromPort(
   let cx = fromGx + dx0;
   let cz = fromGz + dz0;
   let entry = opposite(exitPort);
+  let currentY = startY;
   const mid: Array<readonly [number, number]> = [];
   for (let safety = 0; safety < 512; safety++) {
     const key = `${cx},${cz}`;
     if (junctionSet.has(key)) return { midCells: mid, toGx: cx, toGz: cz, toEntry: entry };
-    const tile = layout.get(cx, cz);
-    if (!tile) throw new Error(`traceEdge hit dead end at (${cx},${cz})`);
+    const tile = layout.getAt(cx, cz, currentY);
+    if (!tile) throw new Error(`traceEdge hit dead end at (${cx},${cz}) y=${currentY}`);
     const ports = effectivePorts(tile);
     if (ports.length !== 2) {
       throw new Error(`traceEdge hit a ${ports.length}-port tile at (${cx},${cz}) that isn't a declared junction`);
@@ -342,6 +349,7 @@ function traceEdgeFromPort(
     }
     mid.push([cx, cz]);
     const exit = ports[0] === entry ? ports[1]! : ports[0]!;
+    currentY = portY(tile, exit);
     const [dx, dz] = dirVector(exit);
     cx += dx;
     cz += dz;
@@ -389,16 +397,20 @@ function buildEdgeCurve(
 
   appendJunctionHalf(points, fromTile, from, exitPort);
 
-  // Mid cells.
+  // Mid cells — Y-aware lookup so a stacked under-pass cell uses the
+  // correct tile (primary at y=RAMP_HEIGHT for the bridge edge, under
+  // STRAIGHT at y=0 for the cross-track edge).
   let entry = opposite(exitPort);
+  let currentY = portY(fromTile, exitPort);
   for (let i = 0; i < midCells.length; i++) {
     const [gx, gz] = midCells[i]!;
-    const tile = layout.get(gx, gz);
+    const tile = layout.getAt(gx, gz, currentY) ?? layout.get(gx, gz);
     if (!tile) throw new Error(`midcell (${gx},${gz}) missing`);
     const ports = effectivePorts(tile);
     const exit = ports[0] === entry ? ports[1]! : ports[0]!;
     const seg = sampleWorldPath(tile, entry, exit, SAMPLES_PER_TILE);
     for (let k = 1; k < seg.length; k++) points.push(seg[k]!);
+    currentY = portY(tile, exit);
     entry = opposite(exit);
   }
 

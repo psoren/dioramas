@@ -14,6 +14,13 @@ export interface HUDOptions {
   /** Optional — when present, the 🎲 Random track button appears and
    *  clicking it invokes this callback. */
   onRandomizeTrack?: () => void;
+  /** Optional — when present, the 👁 POV button appears. The callback is
+   *  passed the new POV-active state (true = POV mode on, false = back to
+   *  orbit). HUD owns the visual toggle state. */
+  onTogglePOV?: (active: boolean) => void;
+  /** Optional — adds a 🟦 Grid button that toggles a grid overlay showing
+   *  the underlying tile cells. */
+  onToggleGrid?: (active: boolean) => void;
 }
 
 export function mountHUD(sim: Sim, opts: HUDOptions): void {
@@ -30,6 +37,12 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     : '';
   const randomizeBtn = opts.onRandomizeTrack
     ? `<button class="btn" id="btn-randomize">🎲 Random track</button>`
+    : '';
+  const povBtn = opts.onTogglePOV
+    ? `<button class="btn" id="btn-pov">👁 POV</button>`
+    : '';
+  const gridBtn = opts.onToggleGrid
+    ? `<button class="btn" id="btn-grid">🟦 Grid</button>`
     : '';
 
   root.innerHTML = `
@@ -54,6 +67,8 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       </div>
       <div class="sep"></div>
       <button class="btn" id="btn-reset">Reset View</button>
+      ${povBtn}
+      ${gridBtn}
       ${randomizeBtn}
     </div>
   `;
@@ -81,6 +96,26 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
   if (opts.onRandomizeTrack) {
     const btn = document.getElementById('btn-randomize') as HTMLButtonElement;
     btn.addEventListener('click', () => opts.onRandomizeTrack!());
+  }
+
+  if (opts.onTogglePOV) {
+    const btn = document.getElementById('btn-pov') as HTMLButtonElement;
+    let active = false;
+    btn.addEventListener('click', () => {
+      active = !active;
+      btn.textContent = active ? '🗺 Orbit' : '👁 POV';
+      opts.onTogglePOV!(active);
+    });
+  }
+
+  if (opts.onToggleGrid) {
+    const btn = document.getElementById('btn-grid') as HTMLButtonElement;
+    let active = false;
+    btn.addEventListener('click', () => {
+      active = !active;
+      btn.classList.toggle('active', active);
+      opts.onToggleGrid!(active);
+    });
   }
 
   if (opts.trackedVehicle) {

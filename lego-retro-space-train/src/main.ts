@@ -103,6 +103,8 @@ const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTe
 // The figure-8 / extruded / twisted modes from earlier rolls still live
 // in TileTrack but are no longer wired into the random button.
 const randomEntities: Entity[] = [];
+// Module-level handle to the active train so the POV button can target it.
+let currentTrain: GraphTrain | null = null;
 // Optional pin: ?seed=N in the URL forces every "random" roll to use the
 // same seed, so a layout can be reproduced for debugging. The HUD click
 // of "Random Track" still re-rolls a NEW random seed (unless ?seed is
@@ -129,6 +131,7 @@ function randomizeTrack(): void {
     }));
     train.object3d.position.y += 0.02;
     randomEntities.push(train);
+    currentTrain = train;
 
     // Per-frame switch updater: aims each junction's arrow toward the
     // exit port the train will take when it next reaches that junction.
@@ -148,16 +151,23 @@ function updateSwitches(
   const currentEdge = (train as unknown as { currentEdge: typeof graph.edges[number] }).currentEdge;
   const direction = (train as unknown as { direction: 1 | -1 }).direction;
   const heading = direction === 1 ? currentEdge.to : currentEdge.from;
-  if (heading.kind !== 'junction') return;
-  // Find the edge the train will take next at this junction (shortest path
-  // to its current target).
   const target = (train as unknown as { currentTargetNode(): typeof graph.nodes[number] }).currentTargetNode();
-  if (target === heading) return; // arriving at target; nothing to switch
-  const path = graph.shortestPath(heading, target);
-  if (!path || path.length === 0) return;
-  const nextEdge = path[0]!;
-  const exitPort = nextEdge.from === heading ? nextEdge.fromExitPort : nextEdge.toEntryPort;
-  track.setSwitchState(heading.id, exitPort);
+  const path = target === heading ? [] : graph.shortestPath(heading, target) ?? [];
+  // Walk the planned path; at every TEE sub-node we cross, record the
+  // outgoing exit direction so the chevron at that cell can point there.
+  const states = new Map<string, 'N' | 'E' | 'S' | 'W'>();
+  let node = heading;
+  for (const edge of path) {
+    if (node.mainSide !== undefined) {
+      const key = `${node.gridX},${node.gridZ}`;
+      if (!states.has(key)) {
+        const exitPort = edge.from === node ? edge.fromExitPort : edge.toEntryPort;
+        states.set(key, exitPort);
+      }
+    }
+    node = edge.from === node ? edge.to : edge.from;
+  }
+  track.setSwitchStates(states);
 }
 
 function mulberry32(seed: number): () => number {
@@ -172,12 +182,69 @@ function mulberry32(seed: number): () => number {
 }
 
 // ----- UI -----
+// Grid overlay — toggled by the 🟦 Grid button. Spans the full base plate
+// (±BASE_SIZE), with cyan lines on every TILE_SIZE cell boundary. Floats
+// above the deck so it's always visible (depthTest off + high renderOrder).
+const gridGroup = (() => {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x00ffff,
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const tile = 2.4;
+  const PLATE_HALF = 28; // BASE_SIZE
+  const span = 2 * PLATE_HALF;
+  const halfCells = Math.ceil(PLATE_HALF / tile); // 12
+  const lineThickness = 0.06;
+  const yLine = 1.6;
+  for (let i = -halfCells; i <= halfCells; i++) {
+    const x = (i + 0.5) * tile;
+    if (Math.abs(x) > PLATE_HALF + tile) continue;
+    const v = new THREE.Mesh(new THREE.BoxGeometry(lineThickness, 0.01, span), mat);
+    v.position.set(x, yLine, 0);
+    v.renderOrder = 999;
+    g.add(v);
+    const h2 = new THREE.Mesh(new THREE.BoxGeometry(span, 0.01, lineThickness), mat);
+    h2.position.set(0, yLine, x);
+    h2.renderOrder = 999;
+    g.add(h2);
+  }
+  g.visible = false;
+  return g;
+})();
+sim.scene.add(gridGroup);
+
 mountHUD(sim, {
   setNumber: '40786',
   setName: 'Micro Command Centre',
   subtitle: tracked && hasTelemetry(tracked.entity) ? 'Classic Space · Telemetry' : 'Classic Space',
   trackedVehicle: tracked && hasTelemetry(tracked.entity) ? tracked.entity : undefined,
   onRandomizeTrack: randomizeTrack,
+  onToggleGrid: (active) => { gridGroup.visible = active; },
+  onTogglePOV: (active) => {
+    if (!active || !currentTrain) {
+      sim.cameraOverride = undefined;
+      return;
+    }
+    const fwd = new THREE.Vector3();
+    const eye = new THREE.Vector3();
+    const look = new THREE.Vector3();
+    sim.cameraOverride = () => {
+      const loco = currentTrain!.locomotive;
+      // World-space forward for a +X-facing train mesh.
+      fwd.set(1, 0, 0).applyQuaternion(loco.quaternion);
+      // Eye: just above the locomotive's nose, slightly forward of the cab.
+      eye.copy(loco.position).addScaledVector(fwd, 0.65);
+      eye.y += 0.4;
+      look.copy(eye).addScaledVector(fwd, 2);
+      sim.camera.position.copy(eye);
+      sim.camera.up.set(0, 1, 0);
+      sim.camera.lookAt(look);
+    };
+  },
 });
 
 sim.start();

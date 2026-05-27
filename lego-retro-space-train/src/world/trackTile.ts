@@ -70,8 +70,11 @@ function portPos(d: Direction): THREE.Vector3 {
 }
 
 /** Vertical lift in world units that a single RAMP_NS tile produces. Use
- *  ELEVATED_STRAIGHT_NS / ELEVATED_CURVE_NE on top to build bridges. */
-export const RAMP_HEIGHT = 1.0;
+ *  ELEVATED_STRAIGHT_NS / ELEVATED_CURVE_NE on top to build bridges.
+ *  Sized so a train (top ≈ 0.78 world units) clears the elevated deck
+ *  with ≈0.6 units of headroom — enough to look like a real bridge with
+ *  a track running under it. */
+export const RAMP_HEIGHT = 1.4;
 
 // --- Straight tile: N <-> S ---------------------------------------------
 export const STRAIGHT_NS: TrackTileDef = {
@@ -91,8 +94,12 @@ export const STRAIGHT_NS: TrackTileDef = {
 };
 
 // --- Ramp tile: N <-> S, low N (y=0) → high S (y=RAMP_HEIGHT) -----------
-// Traverse N→S to climb, S→N to descend. Slope is a straight line in XZ
-// with linearly interpolated Y.
+// XZ is a straight line; Y uses a cosine ease so the slope is ZERO at both
+// boundaries. That makes the bridge profile (ground → ramp → elevated →
+// ramp → ground) C¹-continuous: the train pitches smoothly into and out
+// of the ramp instead of hinge-jumping at each cell seam. Midpoint slope
+// is steeper than linear (π·RAMP_HEIGHT/(2·TILE_SIZE) ≈ 33° for the
+// stock 1.0/2.4 ratio) — accepted as the cost of removing the seams.
 export const RAMP_NS: TrackTileDef = {
   kind: 'ramp-ns',
   basePorts: ['N', 'S'],
@@ -100,13 +107,21 @@ export const RAMP_NS: TrackTileDef = {
     requirePair(this, from, to);
     const a = portPos(from);
     const b = portPos(to);
-    // Set Y on the high-side port: N is low (0), S is high (RAMP_HEIGHT).
-    if (from === 'S') a.y = RAMP_HEIGHT;
-    if (to === 'S') b.y = RAMP_HEIGHT;
+    const yLow = 0;
+    const yHigh = RAMP_HEIGHT;
+    // Caller picks direction via `from`; cosine ease produces zero slope
+    // at both ends regardless of direction.
+    const aHigh = from === 'S';
     const pts: THREE.Vector3[] = [];
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
-      pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+      const eased = (1 - Math.cos(Math.PI * t)) / 2; // 0→1 with slope 0 at ends
+      const y = aHigh
+        ? yHigh + (yLow - yHigh) * eased
+        : yLow + (yHigh - yLow) * eased;
+      const p = new THREE.Vector3().lerpVectors(a, b, t);
+      p.y = y;
+      pts.push(p);
     }
     return pts;
   },

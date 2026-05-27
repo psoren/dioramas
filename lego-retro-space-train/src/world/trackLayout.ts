@@ -8,13 +8,36 @@ import {
   CROSS_NESW,
   RAMP_NS,
   ELEVATED_STRAIGHT_NS,
+  RAMP_HEIGHT,
   TILE_SIZE,
   TrackTileDef,
   effectivePorts,
   sampleWorldPath,
   dirVector,
   opposite,
+  rotateDir,
 } from './trackTile';
+
+/** Y-coordinate of a given port on a placed tile (in local cell coords).
+ *  - ELEVATED_STRAIGHT_NS: all ports at RAMP_HEIGHT
+ *  - RAMP_NS: base N port at 0, base S port at RAMP_HEIGHT (rotated)
+ *  - everything else: 0 */
+export function portY(tile: PlacedTile, effectivePort: Direction): number {
+  if (tile.def.kind === 'elevated-straight-ns') return RAMP_HEIGHT;
+  if (tile.def.kind === 'ramp-ns') {
+    const basePort = rotateDir(effectivePort, -tile.rotation);
+    return basePort === 'S' ? RAMP_HEIGHT : 0;
+  }
+  return 0;
+}
+
+/** Does this tile have AT LEAST ONE port whose Y is approximately atY? */
+export function tileHasPortAtY(tile: PlacedTile, atY: number, tol = 0.01): boolean {
+  for (const p of effectivePorts(tile)) {
+    if (Math.abs(portY(tile, p) - atY) <= tol) return true;
+  }
+  return false;
+}
 
 /**
  * A tile's contiguous span along the loop curve, in t-coordinates.
@@ -54,6 +77,11 @@ export interface LoopResult {
  */
 export class TrackLayout {
   private readonly cells = new Map<string, PlacedTile>();
+  /** Optional ground-level tile beneath an ELEVATED cell, used to render a
+   *  track that passes UNDER the bridge. Cell key is the same as `cells`;
+   *  graph builder and renderer treat the under-tile as a separate tile at
+   *  y=0 (the primary cell's tile stays at its own y). */
+  private readonly underCells = new Map<string, PlacedTile>();
 
   place(
     gx: number,
@@ -67,12 +95,41 @@ export class TrackLayout {
     return tile;
   }
 
+  /** Place a ground-level tile UNDER an elevated cell (for under-passes). */
+  placeUnder(
+    gx: number,
+    gz: number,
+    def: TrackTileDef,
+    rotation: Rotation,
+    routing?: Map<Direction, Direction>,
+  ): PlacedTile {
+    const tile: PlacedTile = { gridX: gx, gridZ: gz, def, rotation, routing };
+    this.underCells.set(key(gx, gz), tile);
+    return tile;
+  }
+
   get(gx: number, gz: number): PlacedTile | undefined {
     return this.cells.get(key(gx, gz));
   }
 
+  getUnder(gx: number, gz: number): PlacedTile | undefined {
+    return this.underCells.get(key(gx, gz));
+  }
+
+  /** Return the tile at (gx, gz) whose ports sit at world-Y level `atY`
+   *  (within `tol`). Used by the graph builder when walking through cells
+   *  that have both an elevated primary tile AND a ground-level under-pass
+   *  tile — the trace picks the one matching the current walker's Y. */
+  getAt(gx: number, gz: number, atY: number, tol = 0.01): PlacedTile | undefined {
+    const primary = this.cells.get(key(gx, gz));
+    if (primary && tileHasPortAtY(primary, atY, tol)) return primary;
+    const under = this.underCells.get(key(gx, gz));
+    if (under && tileHasPortAtY(under, atY, tol)) return under;
+    return undefined;
+  }
+
   tiles(): readonly PlacedTile[] {
-    return Array.from(this.cells.values());
+    return [...this.cells.values(), ...this.underCells.values()];
   }
 
   /**

@@ -1,4 +1,5 @@
 import {
+  CROSS_NESW,
   CURVE_NE,
   Direction,
   ELEVATED_STRAIGHT_NS,
@@ -316,8 +317,14 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   const spurSide = sideKeys.find(lSpurFits);
   if (!spurSide) return null;
   const oppositeOf: Record<SideKey, SideKey> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
-  const bridgeSide = oppositeOf[spurSide];
-  const perpendicularSides = sideKeys.filter((s) => s !== spurSide && s !== bridgeSide);
+  // Bridge goes on one of the perpendicular sides (NOT opposite the spur)
+  // so the cross-track — which passes through both perpendicular sides —
+  // can run UNDER the bridge's elevated middle.
+  const perpendicularSides = sideKeys.filter((s) => s !== spurSide && s !== oppositeOf[spurSide]);
+  const bridgeSide = perpendicularSides[Math.floor(rng() * perpendicularSides.length)]!;
+  // The cross-track's OTHER end (a regular CROSS junction with the main
+  // loop) lands on the perpendicular side that isn't the bridge.
+  const crossSide = perpendicularSides.find((s) => s !== bridgeSide)!;
 
   // ---------- 4. Place decorations ----------
   const claimed = new Set<string>();
@@ -377,21 +384,104 @@ function tryGenerateRandomGraphTrack(rng: () => number): PassingSidingResult | n
   if (bridgeRun.cells.length < 3) return null;
   placeBridge({ dir: bridgeRun.dir, cells: [...bridgeRun.cells] }, claimed, overrides);
 
-  // 4c. Stations on the two perpendicular sides — one each, at the
-  // midpoint of each side's straight run.
-  for (const side of perpendicularSides) {
-    const run = sides[side];
-    if (run.cells.length === 0) continue;
-    const mid = run.cells[Math.floor(run.cells.length / 2)]!;
-    if (claimed.has(`${mid[0]},${mid[1]}`)) continue;
-    claimed.add(`${mid[0]},${mid[1]}`);
-    nodeCells.push({ gx: mid[0], gz: mid[1], kind: 'station', label: stationLabel() });
+  // 4c. Cross-track — a straight line crossing the main loop through TWO
+  // edges of the rectangle and terminating at stations outside on each end.
+  // One end (the "under-pass" end, at `bridgeSide`) passes UNDER the bridge
+  // at ground level (no junction here — the bridge's ELEVATED is the
+  // primary tile, a ground STRAIGHT under-tile is added so the train can
+  // ride through). The other end (`crossSide`) lands on a regular
+  // CROSS_NESW junction with the main loop.
+  //
+  // Spur on top/bottom → cross-track is horizontal (E-W),
+  //                      under-pass at left or right edge.
+  // Spur on left/right → cross-track is vertical (N-S),
+  //                      under-pass at top or bottom edge.
+  const crossH = spurSide === 'top' || spurSide === 'bottom';
+  const leftX = origin[0];
+  const rightX = origin[0] + w;
+  const topZ = origin[1];
+  const botZ = origin[1] + h;
+  if (crossH) {
+    if (Math.abs(leftX - 2) > 5 || Math.abs(rightX + 2) > 5) return null;
+  } else {
+    if (Math.abs(topZ - 2) > 5 || Math.abs(botZ + 2) > 5) return null;
   }
+  // Cross-track row/column passes through the midpoint of each
+  // perpendicular side — same midpoint placeBridge uses, so the bridge's
+  // ELEVATED cell naturally lands on the cross-track row/column.
+  const crossCoord = crossH
+    ? topZ + Math.floor(h / 2)
+    : leftX + Math.floor(w / 2);
+  type Pt = [number, number];
+  const underPass: Pt = crossH
+    ? (bridgeSide === 'left' ? [leftX, crossCoord] : [rightX, crossCoord])
+    : (bridgeSide === 'top'  ? [crossCoord, topZ] : [crossCoord, botZ]);
+  const crossJunction: Pt = crossH
+    ? (crossSide === 'left' ? [leftX, crossCoord] : [rightX, crossCoord])
+    : (crossSide === 'top'  ? [crossCoord, topZ] : [crossCoord, botZ]);
+  // Direction from rectangle CENTER outward for each end (used to compute
+  // exterior cells + station positions).
+  const sideOutward: Record<SideKey, [number, number]> = {
+    top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0],
+  };
+  const [uOx, uOz] = sideOutward[bridgeSide];
+  const [cOx, cOz] = sideOutward[crossSide];
+  const underPassExt1: Pt = [underPass[0] + uOx, underPass[1] + uOz];
+  const underPassEnd: Pt = [underPass[0] + 2 * uOx, underPass[1] + 2 * uOz];
+  const crossExt1: Pt = [crossJunction[0] + cOx, crossJunction[1] + cOz];
+  const crossEnd: Pt = [crossJunction[0] + 2 * cOx, crossJunction[1] + 2 * cOz];
+  // Cross-track interior cells (between underPass and crossJunction).
+  const interiorRange: Pt[] = [];
+  if (crossH) {
+    const interiorMinX = Math.min(underPass[0], crossJunction[0]) + 1;
+    const interiorMaxX = Math.max(underPass[0], crossJunction[0]) - 1;
+    for (let x = interiorMinX; x <= interiorMaxX; x++) {
+      interiorRange.push([x, crossCoord]);
+    }
+  } else {
+    const interiorMinZ = Math.min(underPass[1], crossJunction[1]) + 1;
+    const interiorMaxZ = Math.max(underPass[1], crossJunction[1]) - 1;
+    for (let z = interiorMinZ; z <= interiorMaxZ; z++) {
+      interiorRange.push([crossCoord, z]);
+    }
+  }
+  // The CROSS junction cell must be unclaimed (not the spur TEE or bridge).
+  if (claimed.has(`${crossJunction[0]},${crossJunction[1]}`)) return null;
+  // The under-pass cell must already be claimed by the bridge (the bridge's
+  // ELEVATED cell lands there). If not, our centering didn't line up —
+  // bail and let the generator retry.
+  if (!claimed.has(`${underPass[0]},${underPass[1]}`)) return null;
+  const fullRouting = new Map<Direction, Direction>([
+    ['N', 'S'], ['S', 'N'], ['E', 'W'], ['W', 'E'],
+  ]);
+  overrides.set(`${crossJunction[0]},${crossJunction[1]}`, {
+    def: CROSS_NESW, rotation: 0, routing: fullRouting,
+  });
+  claimed.add(`${crossJunction[0]},${crossJunction[1]}`);
+  const crossStraightRot: Rotation = crossH ? 1 : 0; // ports E-W (1) or N-S (0)
+  // Under-pass tile: STRAIGHT at GROUND LEVEL beneath the bridge. Placed
+  // into the layout's `underCells` map (separate from the primary cell).
+  // Captured here; placed after the polygon-loop runs (below).
+  const underPassTile = { gx: underPass[0], gz: underPass[1], def: STRAIGHT_NS, rotation: crossStraightRot };
+  // Interior + exterior cells.
+  for (const [cx, cz] of [...interiorRange, underPassExt1, underPassEnd, crossExt1, crossEnd]) {
+    if (claimed.has(`${cx},${cz}`)) return null;
+    extraTiles.push({ gx: cx, gz: cz, def: STRAIGHT_NS, rotation: crossStraightRot });
+    claimed.add(`${cx},${cz}`);
+  }
+  nodeCells.push({ gx: crossJunction[0], gz: crossJunction[1], kind: 'junction', label: 'X' });
+  nodeCells.push({ gx: underPassEnd[0], gz: underPassEnd[1], kind: 'station', label: stationLabel() });
+  nodeCells.push({ gx: crossEnd[0], gz: crossEnd[1], kind: 'station', label: stationLabel() });
 
   // ---------- 4. Place layout ----------
   const layout = new TrackLayout();
   placePolygonLoop(layout, cells, overrides);
   for (const t of extraTiles) layout.place(t.gx, t.gz, t.def, t.rotation);
+  // Under-pass: a ground-level STRAIGHT placed BENEATH the bridge's ELEVATED
+  // cell (the primary tile at this cell is the ELEVATED, placed by the
+  // bridge override above). The graph builder treats it as a separate tile
+  // at y=0 reachable by the cross-track trace.
+  layout.placeUnder(underPassTile.gx, underPassTile.gz, underPassTile.def, underPassTile.rotation);
 
   // No CROSS_NESW cells in this generator (no twists, no self-crossings),
   // so we skip the CROSS scan that earlier templates needed.

@@ -23,6 +23,9 @@ export class Sim {
   playing = true;
   /** Multiplied into dt before being passed to entities. */
   speedMultiplier = 1.0;
+  /** Optional camera override. When set, called each frame in place of the
+   *  orbit camera's drift/focus logic — used for POV / chase views. */
+  cameraOverride?: (dt: number) => void;
 
   private readonly clock = new THREE.Clock();
   private readonly entities: Entity[] = [];
@@ -80,9 +83,13 @@ export class Sim {
       const raw = Math.min(this.clock.getDelta(), 0.1);
       const dt = this.playing ? raw * this.speedMultiplier : 0;
       for (const e of this.entities) e.update?.(dt);
-      // Drive cinematic auto-camera (drift + occasional focus picks). Uses
-      // raw dt so the camera keeps moving while the sim is paused.
-      this.orbit.tickWithFocus(raw);
+      // Camera: POV override if set, otherwise the orbit camera's drift +
+      // focus logic. Both use raw dt so the camera keeps moving while paused.
+      if (this.cameraOverride) {
+        this.cameraOverride(raw);
+      } else {
+        this.orbit.tickWithFocus(raw);
+      }
       this.renderer.render(this.scene, this.camera);
     };
     tick();

@@ -1,23 +1,18 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
-import { Direction, RAMP_HEIGHT, TILE_SIZE, dirVector, effectivePorts } from '../world/trackTile';
+import type { Direction } from '../world/trackTile';
+import { RAMP_HEIGHT, TILE_SIZE, effectivePorts } from '../world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../world/trackGraph';
 import { TrackLayout } from '../world/trackLayout';
 
-// Visual constants mirror TileTrack so the two entities look consistent.
+// Monorail: a flat deck (the structural top of the track plinth) with a
+// thin black centerline stripe (visual guide only — train still rides
+// the deck centre). Switch-state glow is applied to the deck itself.
 const DECK_HALF_WIDTH = 0.45;
 const DECK_Y = 0.04;
-const RAIL_HALF_WIDTH = 0.04;
-const RAIL_LATERAL = 0.4;
-const RAIL_Y = 0.085;
-const CONDUCTOR_HALF_WIDTH = 0.05;
-const CONDUCTOR_Y = 0.075;
-const TIE_INTERVAL = 0.55;
-const TIE_LENGTH = 0.95;
-const TIE_DEPTH = 0.16;
-const TIE_HEIGHT = 0.03;
-const TIE_Y = 0.055;
+const STRIPE_HALF_WIDTH = 0.06;
+const STRIPE_Y = 0.06;
 
 function samplesForCurve(length: number): number {
   // Bumped from ×8 to ×24 — strips were visibly polygonal on the corner
@@ -40,10 +35,10 @@ export interface JunctionTrackOptions {
 export class JunctionTrack implements Entity {
   readonly object3d: THREE.Group;
   readonly graph: TrackGraph;
-  /** Switch-state arrows, indexed by junction node id. Each arrow sits
-   *  at the TEE's cell centre and rotates to point along the train's
-   *  upcoming exit direction. setSwitchState rotates them per frame. */
-  private switchArrows = new Map<string, THREE.Object3D>();
+  /** One chevron mesh per TEE cell (keyed "gx,gz"). Hidden by default;
+   *  setSwitchStates() reveals + rotates them to point at the active
+   *  outbound direction. */
+  private chevrons = new Map<string, THREE.Group>();
 
   constructor(opts: JunctionTrackOptions) {
     this.graph = opts.graph;
@@ -51,69 +46,89 @@ export class JunctionTrack implements Entity {
     if (opts.position) this.object3d.position.fromArray(opts.position);
   }
 
-  /** Point the switch arrow at `nodeId` toward `exitPort`. Called per
-   *  frame from the sim with the train's currently-planned exit. */
-  setSwitchState(nodeId: string, exitPort: Direction): void {
-    const arrow = this.switchArrows.get(nodeId);
-    if (!arrow) return;
-    const [dx, dz] = dirVector(exitPort);
-    arrow.rotation.y = Math.atan2(dx, dz);
+  /** Show a chevron at each TEE cell in the given map pointing along the
+   *  given direction. Cells not in the map have their chevron hidden. */
+  setSwitchStates(states: ReadonlyMap<string, Direction>): void {
+    for (const [key, chevron] of this.chevrons) {
+      const dir = states.get(key);
+      if (!dir) {
+        chevron.visible = false;
+        continue;
+      }
+      chevron.visible = true;
+      const [dx, dz] = dirToVec(dir);
+      chevron.rotation.y = Math.atan2(dx, dz) - Math.PI / 2;
+    }
   }
 
   private build(): THREE.Group {
     const g = new THREE.Group();
     const deckMat = MAT.gray.clone();
     deckMat.side = THREE.DoubleSide;
-    const railMat = MAT.grayDark.clone();
 
-    // --- Bridge pillars: only under ELEVATED cells. RAMP cells were
-    //     getting fixed-height pillars at the cell centre which didn't
-    //     match the sloping deck, producing visible "step" geometry at
-    //     the ramp seams. Ramps now visually rest on the abutting
-    //     elevated pillars + the ground at the low end. ---
+    // --- Bridge pillars: two thin piers per ELEVATED cell, on the deck
+    //     centerline and spaced apart along the track direction (so a
+    //     crossing train passes BETWEEN them, perpendicular to the
+    //     elevated track). Looks like a viaduct: two posts holding up the
+    //     span. ---
     const pillarMat = MAT.grayDark;
+    const pillarGeo = new THREE.BoxGeometry(0.16, RAMP_HEIGHT, 0.16);
     for (const tile of this.graph.layout.tiles()) {
       if (tile.def.kind !== 'elevated-straight-ns') continue;
-      const pillarGeo = new THREE.BoxGeometry(0.32, RAMP_HEIGHT, 0.32);
-      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-      pillar.position.set(tile.gridX * TILE_SIZE, RAMP_HEIGHT / 2, tile.gridZ * TILE_SIZE);
-      pillar.castShadow = true;
-      pillar.receiveShadow = true;
-      g.add(pillar);
+      const cx = tile.gridX * TILE_SIZE;
+      const cz = tile.gridZ * TILE_SIZE;
+      // ELEVATED_STRAIGHT_NS base ports are N-S. Rotation 0/2 → track runs
+      // N-S; rotation 1/3 → track runs E-W. Piers are spaced ALONG the
+      // track direction.
+      const horizontalTrack = tile.rotation === 1 || tile.rotation === 3;
+      const alongX = horizontalTrack ? 1 : 0;
+      const alongZ = horizontalTrack ? 0 : 1;
+      const spacing = TILE_SIZE * 0.4;
+      for (const sign of [-1, 1] as const) {
+        const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+        pillar.position.set(
+          cx + sign * alongX * spacing,
+          RAMP_HEIGHT / 2,
+          cz + sign * alongZ * spacing,
+        );
+        pillar.castShadow = true;
+        pillar.receiveShadow = true;
+        g.add(pillar);
+      }
     }
 
-    // --- Switch-state arrows on each junction node ---
-    // A small bright cone sits at the TEE cell centre and rotates to
-    // point in the direction the train will exit next. Gives the user a
-    // visual cue for "the switch is set this way".
-    const arrowMat = new THREE.MeshStandardMaterial({
-      color: 0xffaa22, emissive: 0xffaa22, emissiveIntensity: 0.5,
-    });
-    for (const node of this.graph.nodes) {
-      if (node.kind !== 'junction') continue;
-      const arrowGroup = new THREE.Group();
-      arrowGroup.position.set(node.pos.x, node.pos.y + 0.6, node.pos.z);
-      // Cone, pointing along +Z by default (rotation.y = 0 → south).
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(0.18, 0.5, 12),
-        arrowMat,
-      );
-      cone.rotation.x = Math.PI / 2; // lay it flat so the tip points along XZ
-      cone.position.z = 0.25;        // tip offset so the arrow shows direction
-      cone.castShadow = true;
-      arrowGroup.add(cone);
-      g.add(arrowGroup);
-      this.switchArrows.set(node.id, arrowGroup);
-    }
+    // Shared stripe material — black centre line, double-sided since the
+    // strip geometry's normal points DOWN (triangles wound such that the
+    // up-face is the back).
+    const stripeMat = MAT.black.clone();
+    stripeMat.side = THREE.DoubleSide;
 
-    // --- Edges: one continuous strip per edge ---
-    // Each edge curve covers junction-A-centre → junction-B-centre,
-    // including bezier turnouts at branch ports. Two main-pair edges
-    // through the same junction render overlapping straight halves that
-    // form a continuous main rail; a branch edge renders a single
-    // smoothly-curving turnout in the same junction cell.
+    // --- Edges: deck + black centre stripe per edge. Switch state is
+    //     shown via separate chevron meshes at each TEE cell (built
+    //     below), not by glowing track segments. ---
     for (const edge of this.graph.edges) {
-      this.drawTrackAlongCurve(g, edge.curve, deckMat, railMat);
+      this.drawTrackAlongCurve(g, edge.curve, deckMat, stripeMat);
+    }
+
+    // --- Switch-state chevrons ---
+    // One small green arrow per TEE cell, hovering above the deck centre.
+    // setSwitchStates() rotates / hides them per frame to reflect the
+    // direction the train will exit each TEE next.
+    const seenTEE = new Set<string>();
+    for (const node of this.graph.nodes) {
+      if (node.mainSide === undefined) continue;
+      const key = `${node.gridX},${node.gridZ}`;
+      if (seenTEE.has(key)) continue;
+      seenTEE.add(key);
+      const chevron = buildChevron();
+      chevron.position.set(
+        node.gridX * TILE_SIZE,
+        node.pos.y + 0.15,
+        node.gridZ * TILE_SIZE,
+      );
+      chevron.visible = false;
+      g.add(chevron);
+      this.chevrons.set(key, chevron);
     }
 
     // --- 1-edge nodes (spur ends): draw the dead-end half of the tile so
@@ -138,7 +153,7 @@ export class JunctionTrack implements Entity {
         new THREE.Vector3(cx + dx * half, node.pos.y, cz + dz * half),
       ];
       const stub = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-      this.drawTrackAlongCurve(g, stub, deckMat, railMat);
+      this.drawTrackAlongCurve(g, stub, deckMat);
       // Buffer stop: a small red box at the dead-end boundary.
       const stopGeo = new THREE.BoxGeometry(0.7, 0.18, 0.18);
       const stopMat = MAT.grayDark.clone();
@@ -183,20 +198,64 @@ export class JunctionTrack implements Entity {
       const px = node.pos.x + chosen[0] * offset;
       const py = node.pos.y;
       const pz = node.pos.z + chosen[1] * offset;
+      const yawY = Math.atan2(trackDx, trackDz) - Math.PI / 2;
+
+      // 1. Platform deck.
       const platGeo = new THREE.BoxGeometry(TILE_SIZE * 1.8, 0.18, 0.5);
       const plat = new THREE.Mesh(platGeo, platMat);
       plat.position.set(px, py + 0.1, pz);
-      plat.rotation.y = Math.atan2(trackDx, trackDz) - Math.PI / 2;
+      plat.rotation.y = yawY;
       plat.receiveShadow = true;
       plat.castShadow = true;
       g.add(plat);
-      const marker = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.08, 0.9, 10),
-        MAT.greenLED,
+
+      // 2. Back wall — runs along the far edge of the platform (the side
+      //    away from the track). Acts as the station building's back.
+      const wallGeo = new THREE.BoxGeometry(TILE_SIZE * 1.6, 0.42, 0.08);
+      const wall = new THREE.Mesh(wallGeo, MAT.white);
+      wall.position.set(
+        px + chosen[0] * 0.2,
+        py + 0.4,
+        pz + chosen[1] * 0.2,
       );
-      marker.position.set(px, py + 0.45, pz);
-      marker.castShadow = true;
-      g.add(marker);
+      wall.rotation.y = yawY;
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+      g.add(wall);
+
+      // 3. Canopy roof — thin slab spanning the platform, hovering above.
+      const roofGeo = new THREE.BoxGeometry(TILE_SIZE * 1.9, 0.06, 0.66);
+      const roof = new THREE.Mesh(roofGeo, MAT.gray);
+      roof.position.set(px, py + 0.74, pz);
+      roof.rotation.y = yawY;
+      roof.castShadow = true;
+      g.add(roof);
+
+      // 4. Two support posts at the track-facing front edge of the platform.
+      const postGeo = new THREE.BoxGeometry(0.08, 0.6, 0.08);
+      for (const longOff of [-TILE_SIZE * 0.7, TILE_SIZE * 0.7]) {
+        const ox = trackDx * longOff;
+        const oz = trackDz * longOff;
+        const post = new THREE.Mesh(postGeo, MAT.grayDark);
+        post.position.set(
+          px + ox - chosen[0] * 0.2,
+          py + 0.4,
+          pz + oz - chosen[1] * 0.2,
+        );
+        post.castShadow = true;
+        g.add(post);
+      }
+
+      // 5. Station ID LED — small green light on top of the back wall.
+      const ledGeo = new THREE.BoxGeometry(0.18, 0.05, 0.1);
+      const led = new THREE.Mesh(ledGeo, MAT.greenLED);
+      led.position.set(
+        px + chosen[0] * 0.2,
+        py + 0.65,
+        pz + chosen[1] * 0.2,
+      );
+      led.rotation.y = yawY;
+      g.add(led);
     }
 
     return g;
@@ -206,43 +265,46 @@ export class JunctionTrack implements Entity {
     g: THREE.Group,
     curve: THREE.CatmullRomCurve3,
     deckMat: THREE.Material,
-    railMat: THREE.Material,
+    stripeMat: THREE.Material = MAT.black,
   ): void {
     const length = curve.getLength();
     const samples = samplesForCurve(length);
     const deck = new THREE.Mesh(
-      buildStripGeometry(curve, samples, DECK_HALF_WIDTH, 0, DECK_Y),
+      buildStripGeometrySamples(curve, samples, 0, samples, DECK_HALF_WIDTH, 0, DECK_Y),
       deckMat,
     );
     deck.receiveShadow = true;
     g.add(deck);
-    for (const lateral of [-RAIL_LATERAL, RAIL_LATERAL]) {
-      const rail = new THREE.Mesh(
-        buildStripGeometry(curve, samples, RAIL_HALF_WIDTH, lateral, RAIL_Y),
-        railMat,
-      );
-      rail.castShadow = true;
-      g.add(rail);
-    }
-    const conductor = new THREE.Mesh(
-      buildStripGeometry(curve, samples, CONDUCTOR_HALF_WIDTH, 0, CONDUCTOR_Y),
-      MAT.yellow,
+    const stripe = new THREE.Mesh(
+      buildStripGeometrySamples(curve, samples, 0, samples, STRIPE_HALF_WIDTH, 0, STRIPE_Y),
+      stripeMat,
     );
-    g.add(conductor);
-    const tieCount = Math.max(1, Math.floor(length / TIE_INTERVAL));
-    const tieGeo = new THREE.BoxGeometry(TIE_LENGTH, TIE_HEIGHT, TIE_DEPTH);
-    for (let i = 0; i < tieCount; i++) {
-      const t = (i + 0.5) / tieCount;
-      const p = curve.getPointAt(t);
-      const tan = curve.getTangentAt(t);
-      const tie = new THREE.Mesh(tieGeo, railMat);
-      tie.position.set(p.x, p.y + TIE_Y, p.z);
-      tie.rotation.y = Math.atan2(tan.x, tan.z) - Math.PI / 2;
-      tie.receiveShadow = true;
-      g.add(tie);
-    }
+    g.add(stripe);
   }
 
+}
+
+/** Small flat green-LED chevron pointing along +X. Caller rotates around
+ *  Y to face the active exit direction. */
+function buildChevron(): THREE.Group {
+  const g = new THREE.Group();
+  const armGeo = new THREE.BoxGeometry(0.45, 0.05, 0.1);
+  // Two arms splaying back from the apex (at +X). Together they form a >.
+  for (const sign of [-1, 1] as const) {
+    const arm = new THREE.Mesh(armGeo, MAT.greenLED);
+    // Arm runs from apex (0.25, 0) to back-corner (-0.05, ±0.22). Centre it
+    // at the midpoint between those two points, and rotate around Y so its
+    // local +X axis points from apex to corner.
+    const apex = new THREE.Vector3(0.25, 0, 0);
+    const back = new THREE.Vector3(-0.05, 0, sign * 0.22);
+    const mid = apex.clone().add(back).multiplyScalar(0.5);
+    arm.position.copy(mid);
+    const dir = back.clone().sub(apex);
+    arm.rotation.y = Math.atan2(dir.x, dir.z) - Math.PI / 2;
+    arm.castShadow = true;
+    g.add(arm);
+  }
+  return g;
 }
 
 /** Quantise the perpendicular of a track tangent to a unit cardinal
@@ -279,17 +341,24 @@ function dirToVec(d: Direction): readonly [number, number] {
   }
 }
 
-function buildStripGeometry(
+/** Same as buildStripGeometry but only over the sample-index range
+ *  [iStart, iEnd] (inclusive). Used to render an edge as multiple
+ *  pieces — e.g. the in-TEE-cell portion separately from the rest. */
+function buildStripGeometrySamples(
   path: THREE.CatmullRomCurve3,
-  samples: number,
+  totalSamples: number,
+  iStart: number,
+  iEnd: number,
   halfWidth: number,
   lateral: number,
   y: number,
 ): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
-  for (let i = 0; i <= samples; i++) {
-    const t = i / samples;
+  const count = iEnd - iStart;
+  for (let k = 0; k <= count; k++) {
+    const i = iStart + k;
+    const t = i / totalSamples;
     const p = path.getPointAt(t);
     const tan = path.getTangentAt(t);
     const nx = -tan.z;
@@ -301,14 +370,12 @@ function buildStripGeometry(
     const cz = p.z + lz * lateral;
     const ux = lx * halfWidth;
     const uz = lz * halfWidth;
-    // Strip follows the curve's own Y so ramps climb visibly; `y` adds
-    // the constant offset (rail height above deck, etc.).
     const py = p.y + y;
     positions.push(cx + ux, py, cz + uz);
     positions.push(cx - ux, py, cz - uz);
   }
-  for (let i = 0; i < samples; i++) {
-    const a = i * 2;
+  for (let k = 0; k < count; k++) {
+    const a = k * 2;
     const b = a + 1;
     const c = a + 2;
     const d = a + 3;
