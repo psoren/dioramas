@@ -255,6 +255,9 @@ function wfcTrack(seedOverride?: number): void {
   const generator = pickGenerator(algo);
   console.log(`gen seed: ${seed}  algo: ${algo ?? 'wfc'}`);
   const mulberry = mulberry32(seed);
+  // Each click starts fresh — the additive (extend) flow only makes
+  // sense for WFC and got muddy across algorithm switches.
+  cumulativeLayout.clear();
   const firstRoll = cumulativeLayout.tiles().length === 0;
   let rolledLayout: ReturnType<typeof generateWFCGraph>['graph']['layout'] | null = null;
   if (firstRoll) {

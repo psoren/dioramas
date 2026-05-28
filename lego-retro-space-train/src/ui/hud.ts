@@ -51,7 +51,8 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     ? `<button class="btn" id="btn-grid">🟦 Grid</button>`
     : '';
   const wfcBtn = opts.onWFCTrack
-    ? `<button class="btn" id="btn-wfc">🌊 WFC</button>`
+    ? `<button class="btn" id="btn-wfc">🌊 WFC</button>
+       <button class="btn" id="btn-prims">🧱 Prim's</button>`
     : '';
   const todBtn = opts.onTimeOfDay
     ? `<button class="btn" id="btn-tod">🔄 Cycle</button>`
@@ -133,8 +134,19 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
   }
 
   if (opts.onWFCTrack) {
-    const btn = document.getElementById('btn-wfc') as HTMLButtonElement;
-    btn.addEventListener('click', () => opts.onWFCTrack!());
+    // The two buttons both call onWFCTrack — algorithm is selected via
+    // the URL's ?algo= param, which main.ts reads inside the handler.
+    // Clicking either button updates the param (replaceState so reload
+    // remembers the choice) and triggers a fresh generation.
+    const wfc = document.getElementById('btn-wfc') as HTMLButtonElement;
+    const prims = document.getElementById('btn-prims') as HTMLButtonElement | null;
+    const setAlgo = (name: string) => {
+      const u = new URL(window.location.href);
+      u.searchParams.set('algo', name);
+      window.history.replaceState({}, '', u.toString());
+    };
+    wfc.addEventListener('click', () => { setAlgo('wfc'); opts.onWFCTrack!(); });
+    if (prims) prims.addEventListener('click', () => { setAlgo('prims'); opts.onWFCTrack!(); });
   }
 
   if (opts.onTimeOfDay) {
