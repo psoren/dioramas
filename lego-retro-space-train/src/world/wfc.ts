@@ -137,7 +137,7 @@ export function enumerateVariants(maxLevel = 1): Variant[] {
         const id = `${def.kind}@${rot}${level === 0 ? '' : `+L${level}`}`;
         out.push({
           id, def, rotation: rot, level,
-          weight: defaultWeight(def),
+          weight: defaultWeight(def, level),
           ports,
           portY: portYMap,
         });
@@ -168,33 +168,29 @@ function supportsLevels(def: TrackTileDef): boolean {
 /** Per-tile-kind weight bias for WFC selection. STRAIGHT is the most
  *  common tile in real track layouts; intersections are rare; EMPTY is
  *  moderately common so the grid can leave whitespace. */
-function defaultWeight(def: TrackTileDef): number {
+function defaultWeight(def: TrackTileDef, level: number = 0): number {
   switch (def.kind) {
-    // Plain WFC + modest branch bias. Heavy TEE weights produced
-    // contradiction storms (5/10 solves failed). Bias is gentle now;
-    // bridgeComponents handles the disconnects that result.
     case 'straight-ns': return 4;
     case 'curve-ne': return 4;
     case 'tee-nes': return 2;
     case 'cross-nesw': return 0.5;
-    case 'ramp-ns': return 0.2;
-    case 'ramp-ns-tall': return 0.2;
-    case 'elevated-straight-ns': return 0.4;
-    case 'elevated-curve-ne': return 0.25;
-    // Stations are 1-port dead-ends — a real LEGO track has 1-4, not
-    // 15. Crushed weight means WFC almost never picks STATION_N on its
-    // own; through-stations come from extractGraphFromLayout instead.
+    // Ramps bumped — elevation should be a regular feature, not a rarity.
+    // ramp-ns climbs 1 brick; ramp-ns-tall climbs 2.
+    case 'ramp-ns': return 0.8;
+    case 'ramp-ns-tall': return 0.5;
+    // ELEVATED weights differ by level so level-2 (= level=1 here,
+    // Y=2H, 2 bricks tall) stays rarer than level-1 (= level=0, Y=H).
+    // Both are bumped overall to make bridges common.
+    case 'elevated-straight-ns':
+      return level === 0 ? 1.5 : 0.6;
+    case 'elevated-curve-ne':
+      return level === 0 ? 1.0 : 0.4;
     case 'station-n': return 0.05;
-    case 'under-pass-nesw': return 0.3;
-    // Parallel overpasses are the headline feature — bump them aggressively
-    // so WFC picks them whenever adjacency allows (instead of preferring
-    // a straight ground tile). Transition tiles also raised because
-    // every overpass section needs at least 2 of them to attach to ground.
+    case 'under-pass-nesw':
+      return level === 0 ? 0.8 : 0.3;
     case 'parallel-overpass-ns': return 2.5;
     case 'parallel-overpass-curve-ne': return 2.0;
     case 'parallel-overpass-ramp-ns': return 1.5;
-    // EMPTY's only purpose is the boundary "escape valve" — kept at
-    // near-zero weight so the solver almost never picks it elsewhere.
     case 'empty': return 0.0001;
     default: return 1;
   }
