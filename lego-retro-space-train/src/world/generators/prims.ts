@@ -12,6 +12,7 @@ import { TrackLayout } from '../trackLayout';
 import {
   CROSS_NESW, CURVE_NE, Direction, dirVector, effectivePorts, opposite,
   PlacedTile, Rotation, STATION_N, STRAIGHT_NS, TEE_NES, TrackTileDef,
+  ELEVATED_STRAIGHT_NS, RAMP_NS, UNDER_PASS_NESW,
 } from '../trackTile';
 import { extractGraphFromLayout } from '../wfcGenerator';
 import { TrackGeneratorOptions, TrackGeneratorResult } from './index';
@@ -29,8 +30,13 @@ export function generatePrimsGraph(opts: TrackGeneratorOptions): TrackGeneratorR
   // tile choice is deterministic from the connection set.
   const half = Math.floor(size / 2);
   const layout = layoutFromConnections(connections, size, half);
-  // Step 4: extract the graph (junctions = 3+ port tiles, stations =
-  // 1-port tiles + a couple of STRAIGHT cells for through-stations).
+  // Step 4: post-pass — convert eligible 4-way crossings into
+  // under-passes (one direction elevated over the other) so trains at
+  // different levels actually cross instead of meeting at a CROSS.
+  // Doesn't add same-direction stacking (parallel overpasses) —
+  // those would be decoration with no topological purpose.
+  addUnderPasses(layout, rng);
+  // Step 5: extract the graph.
   return extractGraphFromLayout(layout, rng);
 }
 
@@ -143,4 +149,62 @@ function tileForConnections(dirs: Set<Direction>): { def: TrackTileDef; rotation
 
 function sortedKey(arr: Direction[]): string {
   return arr.slice().sort().join(',');
+}
+
+// --- Under-pass post-pass -------------------------------------------------
+
+/** Replace eligible CROSS_NESW cells with UNDER_PASS_NESW (elevated
+ *  E-W upper layer crossing a ground N-S lower layer). For each
+ *  candidate CROSS:
+ *   - E and W neighbours must be E-W STRAIGHTs (so we can ramp them).
+ *   - N and S neighbours stay as-is (ground STRAIGHTs already match
+ *     the under-pass's N-S Y=0 ports).
+ *  On a match: CROSS → under-pass; E neighbour → RAMP rot 3 (W high,
+ *  E low); W neighbour → RAMP rot 1 (W low, E high). The 3-cell
+ *  segment forms a clean bridge over the perpendicular ground track.
+ *
+ *  Probability per candidate is low (~25%) so under-passes are a
+ *  feature, not the dominant pattern. */
+function addUnderPasses(layout: TrackLayout, rng: () => number): void {
+  const candidates: PlacedTile[] = [];
+  for (const t of layout.tiles()) {
+    if (t.def.kind !== 'cross-nesw') continue;
+    if (layout.get(t.gridX, t.gridZ) !== t) continue;
+    candidates.push(t);
+  }
+  // Shuffle so the choice isn't biased by tile-iteration order.
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j]!, candidates[i]!];
+  }
+  for (const cross of candidates) {
+    if (rng() > 0.4) continue;
+    const east = layout.get(cross.gridX + 1, cross.gridZ);
+    const west = layout.get(cross.gridX - 1, cross.gridZ);
+    if (!isHorizontalStraight(east) || !isHorizontalStraight(west)) continue;
+    // Replace.
+    layout.remove(cross.gridX, cross.gridZ);
+    layout.place(cross.gridX, cross.gridZ, UNDER_PASS_NESW, 0);
+    layout.remove(west!.gridX, west!.gridZ);
+    layout.place(west!.gridX, west!.gridZ, RAMP_NS, 1 as Rotation);
+    layout.remove(east!.gridX, east!.gridZ);
+    layout.place(east!.gridX, east!.gridZ, RAMP_NS, 3 as Rotation);
+    // The under-pass decomposes at WFCGen-style read, but Prim's
+    // doesn't go through that path — we place the virtual tile
+    // directly. Since the layout iterator + graph builder both rely
+    // on effectivePorts which is rotation-aware, this works only if
+    // UNDER_PASS_NESW's samplePath isn't called by the renderer for
+    // ground edges. To be safe, decompose explicitly: place the
+    // primary ELEVATED_STRAIGHT (E-W) + under STRAIGHT (N-S).
+    layout.remove(cross.gridX, cross.gridZ);
+    layout.place(cross.gridX, cross.gridZ, ELEVATED_STRAIGHT_NS, 1 as Rotation);
+    layout.placeUnder(cross.gridX, cross.gridZ, STRAIGHT_NS, 0 as Rotation);
+  }
+}
+
+function isHorizontalStraight(t: PlacedTile | undefined): boolean {
+  if (!t) return false;
+  if (t.def.kind !== 'straight-ns') return false;
+  // STRAIGHT_NS rot 1 has effective ports [W, E] — horizontal.
+  return t.rotation === 1 || t.rotation === 3;
 }

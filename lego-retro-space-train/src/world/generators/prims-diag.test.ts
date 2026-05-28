@@ -1,7 +1,7 @@
 import { describe, it } from 'vitest';
 import { generatePrimsGraph } from './prims';
 import { effectivePorts } from '../trackTile';
-import { TrackLayout, portY } from '../trackLayout';
+import { portY } from '../trackLayout';
 
 // Diagnostic: build the layout (without graph extraction) and dump
 // every tile to spot the bad cell.
