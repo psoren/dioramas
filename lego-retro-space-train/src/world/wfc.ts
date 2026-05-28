@@ -181,7 +181,10 @@ function defaultWeight(def: TrackTileDef): number {
     case 'ramp-ns-tall': return 0.2;
     case 'elevated-straight-ns': return 0.4;
     case 'elevated-curve-ne': return 0.25;
-    case 'station-n': return 0.4;
+    // Stations are 1-port dead-ends — a real LEGO track has 1-4, not
+    // 15. Crushed weight means WFC almost never picks STATION_N on its
+    // own; through-stations come from extractGraphFromLayout instead.
+    case 'station-n': return 0.05;
     case 'under-pass-nesw': return 0.3;
     // Parallel overpasses are the headline feature — bump them aggressively
     // so WFC picks them whenever adjacency allows (instead of preferring

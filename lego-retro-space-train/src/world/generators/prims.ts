@@ -23,9 +23,12 @@ export function generatePrimsGraph(opts: TrackGeneratorOptions): TrackGeneratorR
   const { size, rng } = opts;
   // Step 1: spanning tree over the grid via randomized Prim's.
   const connections = primsMaze(size, rng);
-  // Step 2: knock down some walls to create cycles (otherwise it's a
-  // tree of dead-ends). ~15% extra connections.
-  addCycles(connections, size, rng, 0.15);
+  // Step 2: knock down some walls to create cycles. Spanning trees
+  // have many leaves (= dead-end STATION cells); we add edges
+  // targeting leaves FIRST until the leaf count is acceptable, then
+  // a few generic cycles for variety.
+  pruneLeavesViaCycles(connections, size, rng, /* targetMaxStations */ 4);
+  addCycles(connections, size, rng, 0.08);
   // Step 3: lay tiles. Every cell with ≥1 connection gets a tile;
   // tile choice is deterministic from the connection set.
   const half = Math.floor(size / 2);
@@ -33,11 +36,64 @@ export function generatePrimsGraph(opts: TrackGeneratorOptions): TrackGeneratorR
   // Step 4: post-pass — convert eligible 4-way crossings into
   // under-passes (one direction elevated over the other) so trains at
   // different levels actually cross instead of meeting at a CROSS.
-  // Doesn't add same-direction stacking (parallel overpasses) —
-  // those would be decoration with no topological purpose.
   addUnderPasses(layout, rng);
   // Step 5: extract the graph.
   return extractGraphFromLayout(layout, rng);
+}
+
+/** Iteratively connect leaf cells (cells with exactly 1 connection in
+ *  the maze) to a random unconnected neighbour, until either every
+ *  leaf is handled or we've hit `targetMax` leaves remaining.
+ *
+ *  Each upgrade turns a leaf (would-be STATION) into a 2-port cell, so
+ *  the post-build layout ends up with ~targetMax stations instead of
+ *  the natural ~30-50 from a 13×13 spanning tree. */
+function pruneLeavesViaCycles(
+  conns: Connections,
+  size: number,
+  rng: () => number,
+  targetMax: number,
+): void {
+  for (let pass = 0; pass < 500; pass++) {
+    const leaves: string[] = [];
+    for (const [k, dirs] of conns) {
+      if (dirs.size === 1) leaves.push(k);
+    }
+    if (leaves.length <= targetMax) return;
+    // Pick a random leaf and try to give it a 2nd connection.
+    const cellKey = leaves[Math.floor(rng() * leaves.length)]!;
+    const [xs, ys] = cellKey.split(',');
+    const x = Number(xs);
+    const y = Number(ys);
+    const cellConns = conns.get(cellKey)!;
+    const tried = new Set<Direction>();
+    let added = false;
+    while (tried.size < 4) {
+      const dir = DIRS[Math.floor(rng() * 4)]!;
+      if (tried.has(dir)) continue;
+      tried.add(dir);
+      if (cellConns.has(dir)) continue;
+      const [dx, dy] = dirVector(dir);
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+      cellConns.add(dir);
+      conns.get(`${nx},${ny}`)!.add(opposite(dir));
+      added = true;
+      break;
+    }
+    if (!added) {
+      // Leaf is in a corner with no free neighbours; remove it from
+      // contention by deleting its single connection too — it'll be
+      // dropped during layout build.
+      const [onlyDir] = [...cellConns];
+      if (!onlyDir) break;
+      cellConns.delete(onlyDir);
+      const [dx, dy] = dirVector(onlyDir);
+      const nbr = conns.get(`${x + dx},${y + dy}`);
+      if (nbr) nbr.delete(opposite(onlyDir));
+    }
+  }
 }
 
 // --- Randomized Prim's maze ----------------------------------------------
