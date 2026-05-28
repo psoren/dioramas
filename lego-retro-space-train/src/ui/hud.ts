@@ -18,6 +18,8 @@ export interface HUDOptions {
    *  passed the new POV-active state (true = POV mode on, false = back to
    *  orbit). HUD owns the visual toggle state. */
   onTogglePOV?: (active: boolean) => void;
+  /** Third-person chase cam above + behind the lead train. */
+  onToggleChase?: (active: boolean) => void;
   /** Optional — adds a 🟦 Grid button that toggles a grid overlay showing
    *  the underlying tile cells. */
   onToggleGrid?: (active: boolean) => void;
@@ -46,6 +48,9 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     : '';
   const povBtn = opts.onTogglePOV
     ? `<button class="btn" id="btn-pov">👁 POV</button>`
+    : '';
+  const chaseBtn = opts.onToggleChase
+    ? `<button class="btn" id="btn-chase">🛰 Chase</button>`
     : '';
   const gridBtn = opts.onToggleGrid
     ? `<button class="btn" id="btn-grid">🟦 Grid</button>`
@@ -82,6 +87,7 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       <div class="sep"></div>
       <button class="btn" id="btn-reset">Reset View</button>
       ${povBtn}
+      ${chaseBtn}
       ${gridBtn}
       ${todBtn}
       ${randomizeBtn}
@@ -114,13 +120,30 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     btn.addEventListener('click', () => opts.onRandomizeTrack!());
   }
 
-  if (opts.onTogglePOV) {
-    const btn = document.getElementById('btn-pov') as HTMLButtonElement;
-    let active = false;
-    btn.addEventListener('click', () => {
-      active = !active;
-      btn.textContent = active ? '🗺 Orbit' : '👁 POV';
-      opts.onTogglePOV!(active);
+  // POV + Chase are mutually exclusive — turning one ON turns the
+  // other OFF. Both share the camera-override slot.
+  let povActive = false;
+  let chaseActive = false;
+  const povBtnEl = opts.onTogglePOV ? document.getElementById('btn-pov') as HTMLButtonElement : null;
+  const chaseBtnEl = opts.onToggleChase ? document.getElementById('btn-chase') as HTMLButtonElement : null;
+  const refreshLabels = () => {
+    if (povBtnEl) povBtnEl.textContent = povActive ? '🗺 Orbit' : '👁 POV';
+    if (chaseBtnEl) chaseBtnEl.textContent = chaseActive ? '🗺 Orbit' : '🛰 Chase';
+  };
+  if (povBtnEl) {
+    povBtnEl.addEventListener('click', () => {
+      povActive = !povActive;
+      if (povActive && chaseActive) { chaseActive = false; opts.onToggleChase?.(false); }
+      refreshLabels();
+      opts.onTogglePOV!(povActive);
+    });
+  }
+  if (chaseBtnEl) {
+    chaseBtnEl.addEventListener('click', () => {
+      chaseActive = !chaseActive;
+      if (chaseActive && povActive) { povActive = false; opts.onTogglePOV?.(false); }
+      refreshLabels();
+      opts.onToggleChase!(chaseActive);
     });
   }
 

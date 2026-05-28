@@ -442,6 +442,33 @@ mountHUD(sim, {
       sim.camera.lookAt(look);
     };
   },
+  onToggleChase: (active) => {
+    if (!active || !currentTrain) {
+      sim.cameraOverride = undefined;
+      return;
+    }
+    const fwd = new THREE.Vector3();
+    const eye = new THREE.Vector3();
+    const look = new THREE.Vector3();
+    const targetEye = new THREE.Vector3();
+    const targetLook = new THREE.Vector3();
+    let init = false;
+    sim.cameraOverride = () => {
+      const loco = currentTrain!.locomotive;
+      fwd.set(1, 0, 0).applyQuaternion(loco.quaternion);
+      // Behind + above the locomotive, looking slightly ahead.
+      targetEye.copy(loco.position).addScaledVector(fwd, -3.2);
+      targetEye.y += 2.4;
+      targetLook.copy(loco.position).addScaledVector(fwd, 1.5);
+      targetLook.y += 0.3;
+      // Smooth follow so the camera doesn't snap on turns.
+      if (!init) { eye.copy(targetEye); look.copy(targetLook); init = true; }
+      else { eye.lerp(targetEye, 0.12); look.lerp(targetLook, 0.18); }
+      sim.camera.position.copy(eye);
+      sim.camera.up.set(0, 1, 0);
+      sim.camera.lookAt(look);
+    };
+  },
 });
 
 sim.start();
