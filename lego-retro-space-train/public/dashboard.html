@@ -162,9 +162,33 @@
   </div>
   <h1>WFC Generation Iterations</h1>
   <div class="subtitle">Newest batch on top. Each batch is 10 layouts at 13×13.</div>
+  <div id="saved-seeds"></div>
   <div id="batches"></div>
   <script>
+    async function loadSavedSeeds() {
+      try {
+        const r = await fetch('/saved-seeds.json', { cache: 'no-store' });
+        if (!r.ok) return;
+        const seeds = await r.json();
+        const root = document.getElementById('saved-seeds');
+        if (!root) return;
+        if (!Array.isArray(seeds) || seeds.length === 0) return;
+        root.innerHTML = `
+          <div class="batch" style="border-left:3px solid #c7c7e0">
+            <h2 style="margin-bottom:8px">⭐ Saved seeds</h2>
+            ${seeds.map((s) => `
+              <div style="font-family:ui-monospace,monospace;font-size:12px;padding:4px 0">
+                <code style="background:#232333;padding:1px 6px;border-radius:4px;color:#c7c7e0">${s.algo}</code>
+                <a href="/?wfc-seed=${s.seed}&algo=${s.algo}" style="color:#7ad;margin-left:8px">seed ${s.seed}</a>
+                ${s.notes ? `<div style="color:#888;font-size:11px;margin-top:2px;padding-left:8px">${escapeHtml(s.notes)}</div>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } catch { /* missing or malformed — fine */ }
+    }
     async function load() {
+      await loadSavedSeeds();
       const res = await fetch('/batches/index.json', { cache: 'no-store' });
       if (!res.ok) {
         document.getElementById('batches').innerHTML =
@@ -209,6 +233,11 @@
               const covTag = s.coverage !== undefined
                 ? `<span style="color:${s.coverage >= 0.7 ? '#5e5' : s.coverage >= 0.4 ? '#bb5' : '#a66'}">cov ${(s.coverage * 100).toFixed(0)}%</span>`
                 : '';
+              const compsTag = s.components !== undefined
+                ? (s.components > 1
+                    ? `<span style="color:#f77">⚠ ${s.components} sub-graphs (${s.unreachableNodes} unreachable)</span>`
+                    : `<span style="color:#5e5">1 component</span>`)
+                : '';
               return `
                 <div class="set">
                   <div class="render-stack" data-png="${pngUrl}" onclick="openLightbox(this.dataset.png, '${escapeAttr(caption)}')">
@@ -216,6 +245,7 @@
                     <img class="topdown-svg" src="${svgUrl}" alt="top-down">
                   </div>
                   <div class="meta">seed ${s.seed} • ${s.tiles}t • ${parallelTag} • ${elevTag} • ${covTag}</div>
+                  <div class="meta">${compsTag}</div>
                   ${errLine}
                 </div>
               `;

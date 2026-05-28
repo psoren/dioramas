@@ -98,6 +98,29 @@ describe('render WFC batch', () => {
         const coverage = allLayoutCells.size > 0 ? union.size / allLayoutCells.size : 0;
         const svg = renderLayoutSvg(layout, size, parallel, elevatedOK, groundCovered, elevatedCovered, firstRollKeys);
         fs.writeFileSync(path.join(outDir, `set-${i + 1}.svg`), svg);
+        // Count connected sub-graphs (= "disconnected pieces"). Train
+        // only rides the largest; everything else is visible track no
+        // train can reach.
+        const assignedNodes = new Set<GraphNode>();
+        const compSizes: number[] = [];
+        for (const n of result.graph.nodes) {
+          if (assignedNodes.has(n)) continue;
+          assignedNodes.add(n);
+          let count = 1;
+          for (const other of result.graph.nodes) {
+            if (assignedNodes.has(other)) continue;
+            if (result.graph.shortestPath(n, other) !== null) {
+              assignedNodes.add(other);
+              count++;
+            }
+          }
+          compSizes.push(count);
+        }
+        compSizes.sort((a, b) => b - a);
+        const components = compSizes.length;
+        const largestComp = compSizes[0] ?? 0;
+        const unreachableNodes = compSizes.slice(1).reduce((a, b) => a + b, 0);
+
         sets.push({
           seed, ok: true, tiles: layout.tiles().length, parallel, elevatedOK, elevatedThrough, elevatedErr,
           coverage: Number(coverage.toFixed(3)),
@@ -107,6 +130,9 @@ describe('render WFC batch', () => {
           cellsUncovered: allLayoutCells.size - union.size,
           firstRollCells,
           addedByRoll2: added,
+          components,
+          largestComp,
+          unreachableNodes,
         });
       } catch (e) {
         sets.push({ seed, ok: false, error: (e as Error).message.slice(0, 200) });
@@ -183,6 +209,9 @@ interface BatchEntry {
     cellsUncovered?: number;
     firstRollCells?: number;
     addedByRoll2?: number;
+    components?: number;
+    largestComp?: number;
+    unreachableNodes?: number;
     error?: string;
   }>;
   notes: string;

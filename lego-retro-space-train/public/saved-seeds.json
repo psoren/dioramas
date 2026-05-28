@@ -1,0 +1,8 @@
+[
+  {
+    "seed": 17225,
+    "algo": "wfc",
+    "savedAt": "2026-05-28T06:30:00Z",
+    "notes": "Worth keeping — but WFC produces 3 disconnected sub-graphs (20/4/1 nodes); train rides only the largest, 5 nodes are visible-but-unreachable. Open: http://127.0.0.1:5173/?wfc-seed=17225&algo=wfc"
+  }
+]
