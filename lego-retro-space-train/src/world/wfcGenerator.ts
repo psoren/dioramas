@@ -49,11 +49,10 @@ export interface WFCGenOptions {
  *  intersection, ≥2 stations, all nodes reachable from one another).
  *  Restarts the pipeline on contradiction or contract failure. */
 export function generateWFCGraph(opts: WFCGenOptions = {}): WFCGenResult {
-  // 21×21 grid covers the full plate. With bridgeComponents handling
-  // disconnects and the much-lower EMPTY weight, plain WFC fills it
-  // densely. (Previous 13×13 was a workaround for the wavefront era's
-  // slow solves and over-aggressive component drops.)
-  const size = opts.size ?? 21;
+  // 13×13 grid. 21×21 froze the browser (200 retries × O(n²) propagation
+  // is several seconds per WFC click; the user feedback was "freezes").
+  // 13×13 solves in under a second in-browser.
+  const size = opts.size ?? 13;
   const rng = opts.rng ?? Math.random;
   // With EMPTY removed from the variant pool, contradictions are more
   // common (no fallback variant). Bumped retry budget to compensate —
