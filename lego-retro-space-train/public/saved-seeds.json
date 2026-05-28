@@ -1,8 +1,14 @@
 [
   {
+    "seed": 790531,
+    "algo": "wfc",
+    "savedAt": "2026-05-28T07:00:00Z",
+    "notes": "Caught WFC placing many same-direction parallel overpasses (duplicate track above with no ramp). After this seed we removed PARALLEL_OVERPASS_* from the WFC variant pool; only under-passes (perpendicular) remain."
+  },
+  {
     "seed": 17225,
     "algo": "wfc",
     "savedAt": "2026-05-28T06:30:00Z",
-    "notes": "Worth keeping — but WFC produces 3 disconnected sub-graphs (20/4/1 nodes); train rides only the largest, 5 nodes are visible-but-unreachable. Open: http://127.0.0.1:5173/?wfc-seed=17225&algo=wfc"
+    "notes": "Worth keeping — but WFC produces 3 disconnected sub-graphs (20/4/1 nodes); train rides only the largest, 5 nodes are visible-but-unreachable."
   }
 ]

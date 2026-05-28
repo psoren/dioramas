@@ -395,8 +395,11 @@ function requirePair(def: TrackTileDef, from: Direction, to: Direction): void {
 export const ALL_TILES: readonly TrackTileDef[] = [
   STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW, RAMP_NS, RAMP_NS_TALL,
   ELEVATED_STRAIGHT_NS, ELEVATED_CURVE_NE, STATION_N, UNDER_PASS_NESW,
-  PARALLEL_OVERPASS_NS, PARALLEL_OVERPASS_CURVE_NE,
-  PARALLEL_OVERPASS_RAMP_NS,
+  // Parallel-overpass tiles (same-direction stacking) deliberately
+  // EXCLUDED — they place a duplicate track above another with no
+  // way to reach the upper layer. The under-pass tile + ramp inserts
+  // are the right model for "tracks at two levels."
+  // PARALLEL_OVERPASS_NS, PARALLEL_OVERPASS_CURVE_NE, PARALLEL_OVERPASS_RAMP_NS
 ];
 
 // --- Placed tile + helpers ----------------------------------------------
