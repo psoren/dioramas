@@ -12,7 +12,7 @@ import { TrackLayout } from '../trackLayout';
 import {
   CROSS_NESW, CURVE_NE, Direction, dirVector, effectivePorts, opposite,
   PlacedTile, Rotation, STATION_N, STRAIGHT_NS, TEE_NES, TrackTileDef,
-  ELEVATED_STRAIGHT_NS, RAMP_NS, UNDER_PASS_NESW,
+  ELEVATED_STRAIGHT_NS, RAMP_NS, RAMP_NS_TALL,
 } from '../trackTile';
 import { extractGraphFromLayout } from '../wfcGenerator';
 import { TrackGeneratorOptions, TrackGeneratorResult } from './index';
@@ -178,33 +178,75 @@ function addUnderPasses(layout: TrackLayout, rng: () => number): void {
     [candidates[i], candidates[j]] = [candidates[j]!, candidates[i]!];
   }
   for (const cross of candidates) {
-    if (rng() > 0.4) continue;
-    const east = layout.get(cross.gridX + 1, cross.gridZ);
-    const west = layout.get(cross.gridX - 1, cross.gridZ);
-    if (!isHorizontalStraight(east) || !isHorizontalStraight(west)) continue;
-    // Replace.
-    layout.remove(cross.gridX, cross.gridZ);
-    layout.place(cross.gridX, cross.gridZ, UNDER_PASS_NESW, 0);
-    layout.remove(west!.gridX, west!.gridZ);
-    layout.place(west!.gridX, west!.gridZ, RAMP_NS, 1 as Rotation);
-    layout.remove(east!.gridX, east!.gridZ);
-    layout.place(east!.gridX, east!.gridZ, RAMP_NS, 3 as Rotation);
-    // The under-pass decomposes at WFCGen-style read, but Prim's
-    // doesn't go through that path — we place the virtual tile
-    // directly. Since the layout iterator + graph builder both rely
-    // on effectivePorts which is rotation-aware, this works only if
-    // UNDER_PASS_NESW's samplePath isn't called by the renderer for
-    // ground edges. To be safe, decompose explicitly: place the
-    // primary ELEVATED_STRAIGHT (E-W) + under STRAIGHT (N-S).
-    layout.remove(cross.gridX, cross.gridZ);
-    layout.place(cross.gridX, cross.gridZ, ELEVATED_STRAIGHT_NS, 1 as Rotation);
-    layout.placeUnder(cross.gridX, cross.gridZ, STRAIGHT_NS, 0 as Rotation);
+    if (rng() > 0.85) continue; // 85% chance — under-passes should be common
+    // Try E-W bridge first, then N-S. RNG decides priority.
+    const tryEW = rng() < 0.5;
+    const order: Array<'EW' | 'NS'> = tryEW ? ['EW', 'NS'] : ['NS', 'EW'];
+    for (const axis of order) {
+      if (axis === 'EW') {
+        const east = layout.get(cross.gridX + 1, cross.gridZ);
+        const west = layout.get(cross.gridX - 1, cross.gridZ);
+        if (!isHorizontalStraight(east) || !isHorizontalStraight(west)) continue;
+        layout.remove(cross.gridX, cross.gridZ);
+        // Bridge primary ELEVATED runs E-W (rot 1), under STRAIGHT runs
+        // N-S (rot 0). Pick level: 60% level-0 (Y=H), 40% level-1 (Y=2H).
+        const tall = rng() < 0.4;
+        if (tall) {
+          layout.place(cross.gridX, cross.gridZ, ELEVATED_STRAIGHT_NS, 1 as Rotation, undefined, 1);
+        } else {
+          layout.place(cross.gridX, cross.gridZ, ELEVATED_STRAIGHT_NS, 1 as Rotation);
+        }
+        layout.placeUnder(cross.gridX, cross.gridZ, STRAIGHT_NS, 0 as Rotation);
+        // Side ramps: W ramp goes W=low→E=high, E ramp goes W=high→E=low.
+        layout.remove(west!.gridX, west!.gridZ);
+        layout.remove(east!.gridX, east!.gridZ);
+        if (tall) {
+          // RAMP_NS_TALL climbs the full 2H in one cell.
+          layout.place(west!.gridX, west!.gridZ, RAMP_NS_TALL, 1 as Rotation);
+          layout.place(east!.gridX, east!.gridZ, RAMP_NS_TALL, 3 as Rotation);
+        } else {
+          layout.place(west!.gridX, west!.gridZ, RAMP_NS, 1 as Rotation);
+          layout.place(east!.gridX, east!.gridZ, RAMP_NS, 3 as Rotation);
+        }
+        break;
+      } else {
+        const north = layout.get(cross.gridX, cross.gridZ - 1);
+        const south = layout.get(cross.gridX, cross.gridZ + 1);
+        if (!isVerticalStraight(north) || !isVerticalStraight(south)) continue;
+        layout.remove(cross.gridX, cross.gridZ);
+        const tall = rng() < 0.4;
+        // For N-S bridge: primary ELEVATED runs N-S (rot 0), under
+        // STRAIGHT runs E-W (rot 1) — the perpendicular ground track.
+        if (tall) {
+          layout.place(cross.gridX, cross.gridZ, ELEVATED_STRAIGHT_NS, 0 as Rotation, undefined, 1);
+        } else {
+          layout.place(cross.gridX, cross.gridZ, ELEVATED_STRAIGHT_NS, 0 as Rotation);
+        }
+        layout.placeUnder(cross.gridX, cross.gridZ, STRAIGHT_NS, 1 as Rotation);
+        // N ramp goes N=high→S=low (rot 2). S ramp: S=high→N=low (rot 0).
+        layout.remove(north!.gridX, north!.gridZ);
+        layout.remove(south!.gridX, south!.gridZ);
+        if (tall) {
+          layout.place(north!.gridX, north!.gridZ, RAMP_NS_TALL, 2 as Rotation);
+          layout.place(south!.gridX, south!.gridZ, RAMP_NS_TALL, 0 as Rotation);
+        } else {
+          layout.place(north!.gridX, north!.gridZ, RAMP_NS, 2 as Rotation);
+          layout.place(south!.gridX, south!.gridZ, RAMP_NS, 0 as Rotation);
+        }
+        break;
+      }
+    }
   }
 }
 
 function isHorizontalStraight(t: PlacedTile | undefined): boolean {
   if (!t) return false;
   if (t.def.kind !== 'straight-ns') return false;
-  // STRAIGHT_NS rot 1 has effective ports [W, E] — horizontal.
   return t.rotation === 1 || t.rotation === 3;
+}
+
+function isVerticalStraight(t: PlacedTile | undefined): boolean {
+  if (!t) return false;
+  if (t.def.kind !== 'straight-ns') return false;
+  return t.rotation === 0 || t.rotation === 2;
 }

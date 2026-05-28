@@ -68,6 +68,11 @@ export class OrbitCamera {
   private readonly tempVec = new THREE.Vector3();
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
+  // WASD fly state: which movement keys are currently held + Q/E for
+  // vertical pan. Camera moves the orbit `target` (look-at point) in
+  // the screen-aligned axes, so panning behaves like flying around.
+  private readonly keys = new Set<string>();
+  private wasdSpeed = 18; // world units per second
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -108,6 +113,8 @@ export class OrbitCamera {
    * Called with raw (non-paused) dt so the camera keeps moving when paused.
    */
   tickWithFocus(dt: number): void {
+    // WASD first so user input takes priority over auto-drift.
+    this.applyWASD(dt);
     if (this.focusTarget) {
       this.focusTimeRemaining -= dt;
       this.focusTarget.getWorldPosition(this.tempVec);
@@ -239,6 +246,52 @@ export class OrbitCamera {
       },
       { passive: false },
     );
+    // WASD fly camera. Key state is consumed each tick in tickWithFocus.
+    // Skip events that originate from input/textarea so typing in the
+    // HUD doesn't move the camera.
+    window.addEventListener('keydown', (e) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const k = e.key.toLowerCase();
+      if ('wasdqe'.includes(k) || k === 'shift') this.keys.add(k);
+    });
+    window.addEventListener('keyup', (e) => {
+      const k = e.key.toLowerCase();
+      this.keys.delete(k);
+    });
+    window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  /** Apply WASD movement for this frame. Called from tickWithFocus.
+   *  W/S — forward/back along the camera's horizontal forward.
+   *  A/D — strafe left/right.
+   *  Q/E — pan down/up (Y axis).
+   *  Shift — 3× speed. */
+  private applyWASD(dt: number): void {
+    if (this.keys.size === 0) return;
+    const speed = this.wasdSpeed * (this.keys.has('shift') ? 3 : 1);
+    // Camera forward, projected onto horizontal plane.
+    const fwd = new THREE.Vector3();
+    this.camera.getWorldDirection(fwd);
+    fwd.y = 0;
+    if (fwd.lengthSq() === 0) fwd.set(0, 0, -1);
+    fwd.normalize();
+    // Right vector = forward × world up.
+    const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+    const dx = new THREE.Vector3();
+    if (this.keys.has('w')) dx.add(fwd);
+    if (this.keys.has('s')) dx.sub(fwd);
+    if (this.keys.has('d')) dx.add(right);
+    if (this.keys.has('a')) dx.sub(right);
+    if (this.keys.has('e')) dx.add(new THREE.Vector3(0, 1, 0));
+    if (this.keys.has('q')) dx.add(new THREE.Vector3(0, -1, 0));
+    if (dx.lengthSq() > 0) {
+      dx.normalize().multiplyScalar(speed * dt);
+      this.target.add(dx);
+      this.noteInteraction();
+      // Don't auto-drift while flying.
+      this.exitFocus();
+    }
   }
 
   private tryClickFocus(clientX: number, clientY: number): void {
