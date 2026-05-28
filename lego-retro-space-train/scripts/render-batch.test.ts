@@ -7,7 +7,8 @@
 // server.
 
 import { describe, it } from 'vitest';
-import { generateWFCGraph, extractGraphFromLayout } from '../src/world/wfcGenerator';
+import { extractGraphFromLayout } from '../src/world/wfcGenerator';
+import { pickGenerator } from '../src/world/generators';
 import { TrackLayout } from '../src/world/trackLayout';
 import { PlacedTile, effectivePorts, sampleWorldPath, TILE_SIZE } from '../src/world/trackTile';
 import { GraphEdge, GraphNode, TrackGraph } from '../src/world/trackGraph';
@@ -49,11 +50,10 @@ describe('render WFC batch', () => {
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
       };
       try {
-        // WFC with wavefront observe + branch bias (set in wfc.ts).
-        // Connectivity comes from: pre-seeded STATION_N at origin +
-        // observer only collapses cells ADJACENT to already-collapsed
-        // cells + keepOnlyLargestComponent post-filter.
-        const result = generateWFCGraph({ size, rng, maxRetries: 200 });
+        // Algorithm selected via NOTES_ALGO env (defaults to 'wfc').
+        const algoName = process.env.NOTES_ALGO ?? 'wfc';
+        const generator = pickGenerator(algoName);
+        const result = generator({ size, rng, maxRetries: 200 });
         const layout = result.graph.layout;
         const firstRollCells = layout.tiles().length;
         const added = 0;
@@ -128,11 +128,13 @@ describe('render WFC batch', () => {
       try { index = JSON.parse(fs.readFileSync(indexPath, 'utf8')); } catch { /* keep empty */ }
     }
     const notes = process.env.NOTES ?? '';
+    const algoName = process.env.NOTES_ALGO ?? 'wfc';
     const entry: BatchEntry = {
       batchId,
       commit,
       timestamp: new Date().toISOString(),
       size,
+      algo: algoName,
       stats: {
         solves: okCount,
         total: sets.length,
@@ -157,6 +159,7 @@ interface BatchEntry {
   commit: string;
   timestamp: string;
   size: number;
+  algo?: string;
   stats: {
     solves: number;
     total: number;

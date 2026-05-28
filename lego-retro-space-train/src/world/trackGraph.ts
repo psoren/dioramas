@@ -602,6 +602,24 @@ function buildEdgeCurve(
   if (prev && prev.distanceTo(tail[0]!) < 1e-6) tail.shift();
   points.push(...tail);
 
+  // CatmullRomCurve3 needs ≥ 4 control points to evaluate every segment
+  // without reading off the end of the array. When two TEE sub-nodes are
+  // directly adjacent and the edge goes main-port-to-main-port, this
+  // builder produces only 2 points (one per appendJunctionHalf's mainSide
+  // branch). Pad by interpolating between the first and last points up
+  // to 4 samples so getPoint() can sample safely.
+  if (points.length < 4) {
+    const first = points[0]!;
+    const last = points[points.length - 1]!;
+    const padded: THREE.Vector3[] = [];
+    const PAD_N = 4;
+    for (let i = 0; i <= PAD_N; i++) {
+      const t = i / PAD_N;
+      padded.push(new THREE.Vector3().lerpVectors(first, last, t));
+    }
+    return new THREE.CatmullRomCurve3(padded, false, 'centripetal');
+  }
+
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
 }
 

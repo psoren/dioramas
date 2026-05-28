@@ -47,6 +47,7 @@ try {
       const url = new URL(SERVER);
       url.searchParams.set('wfc-seed', String(s.seed));
       url.searchParams.set('nohud', '1');
+      if (batch.algo) url.searchParams.set('algo', batch.algo);
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       page.on('pageerror', (err) => console.error(`  [page error] ${err.message}`));
       try {

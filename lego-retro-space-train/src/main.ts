@@ -41,6 +41,7 @@ import { JunctionTrack } from './entities/JunctionTrack';
 import { GraphTrain } from './entities/GraphTrain';
 import { generateRandomGraphTrack } from './world/trackGraphGenerators';
 import { generateWFCGraph, extractGraphFromLayout, extendWFCLayout } from './world/wfcGenerator';
+import { pickGenerator } from './world/generators';
 import type { GraphNode, TrackGraph } from './world/trackGraph';
 import { TrackLayout } from './world/trackLayout';
 import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
@@ -249,24 +250,28 @@ function wfcTrack(seedOverride?: number): void {
   // Instead we retry at progressively smaller grid sizes (easier for the
   // solver). If every size fails we leave the previous layout intact.
   const seed = seedOverride ?? Math.floor(Math.random() * 1_000_000);
-  console.log(`wfc seed: ${seed}`);
+  // Pick generator algorithm from URL param `?algo=wfc|prims`.
+  const algo = new URLSearchParams(window.location.search).get('algo');
+  const generator = pickGenerator(algo);
+  console.log(`gen seed: ${seed}  algo: ${algo ?? 'wfc'}`);
   const mulberry = mulberry32(seed);
   const firstRoll = cumulativeLayout.tiles().length === 0;
   let rolledLayout: ReturnType<typeof generateWFCGraph>['graph']['layout'] | null = null;
   if (firstRoll) {
-    // First roll: use the strict generator (criteria-checked).
-    let result: ReturnType<typeof generateWFCGraph> | null = null;
+    // First roll: use the chosen generator.
+    let result: ReturnType<typeof generator> | null = null;
     for (const size of [21, 17, 13]) {
       try {
-        result = generateWFCGraph({ size, rng: mulberry });
-        console.log(`wfc ${size}x${size} (first roll) done after ${result.retries} retries`);
+        const r = generator({ size, rng: mulberry });
+        result = r;
+        console.log(`${algo ?? 'wfc'} ${size}x${size} (first roll) done after ${r.retries ?? 0} retries`);
         break;
       } catch (err) {
-        console.warn(`wfc ${size}x${size} failed:`, err);
+        console.warn(`${algo ?? 'wfc'} ${size}x${size} failed:`, err);
       }
     }
     if (!result) {
-      console.error('wfc: all sizes failed; keeping previous layout');
+      console.error('gen: all sizes failed; keeping previous layout');
       return;
     }
     rolledLayout = result.graph.layout;

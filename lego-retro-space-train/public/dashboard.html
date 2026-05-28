@@ -181,7 +181,7 @@
         const parallelPct = ((batch.stats.layoutsWithParallel / batch.stats.total) * 100).toFixed(0);
         const elevatedPct = ((batch.stats.elevatedOK / batch.stats.total) * 100).toFixed(0);
         div.innerHTML = `
-          <h2><code>${batch.commit}</code>${dt.toLocaleString()}</h2>
+          <h2><code>${batch.commit}</code>${batch.algo ? `<code style="background:#3a2f1a;color:#e9c97a">${batch.algo}</code>` : ''}${dt.toLocaleString()}</h2>
           <div class="stats">
             solves: <span class="${batch.stats.solves === batch.stats.total ? 'good' : 'bad'}">${batch.stats.solves}/${batch.stats.total}</span> (${okPct}%)
             • parallel: <span class="${batch.stats.layoutsWithParallel >= 7 ? 'good' : 'bad'}">${batch.stats.layoutsWithParallel}/${batch.stats.total}</span> (${parallelPct}%)
