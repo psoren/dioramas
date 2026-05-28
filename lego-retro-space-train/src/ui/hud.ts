@@ -52,7 +52,8 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     : '';
   const wfcBtn = opts.onWFCTrack
     ? `<button class="btn" id="btn-wfc">🌊 WFC</button>
-       <button class="btn" id="btn-prims">🧱 Prim's</button>`
+       <button class="btn" id="btn-prims">🧱 Prim's</button>
+       <button class="btn seed-badge" id="seed-badge" title="Click to copy">seed —</button>`
     : '';
   const todBtn = opts.onTimeOfDay
     ? `<button class="btn" id="btn-tod">🔄 Cycle</button>`
@@ -147,6 +148,24 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     };
     wfc.addEventListener('click', () => { setAlgo('wfc'); opts.onWFCTrack!(); });
     if (prims) prims.addEventListener('click', () => { setAlgo('prims'); opts.onWFCTrack!(); });
+    // Click the seed badge to copy the seed to clipboard.
+    const seedBtn = document.getElementById('seed-badge') as HTMLButtonElement | null;
+    if (seedBtn) {
+      seedBtn.addEventListener('click', async () => {
+        const m = seedBtn.textContent?.match(/(\d+)/);
+        if (!m) return;
+        const seed = m[1]!;
+        try {
+          await navigator.clipboard.writeText(seed);
+          const prevText = seedBtn.textContent;
+          seedBtn.textContent = `seed ${seed} ✓`;
+          setTimeout(() => { if (seedBtn) seedBtn.textContent = prevText ?? ''; }, 1200);
+        } catch {
+          // Fallback: select via prompt so user can hand-copy.
+          window.prompt('seed (copy):', seed);
+        }
+      });
+    }
   }
 
   if (opts.onTimeOfDay) {

@@ -254,6 +254,16 @@ function wfcTrack(seedOverride?: number): void {
   const algo = new URLSearchParams(window.location.search).get('algo');
   const generator = pickGenerator(algo);
   console.log(`gen seed: ${seed}  algo: ${algo ?? 'wfc'}`);
+  // Persist seed in the URL (?wfc-seed=N) so a refresh reproduces the
+  // same layout, and surface it in the HUD seed badge so it can be
+  // copied with one click.
+  {
+    const u = new URL(window.location.href);
+    u.searchParams.set('wfc-seed', String(seed));
+    window.history.replaceState({}, '', u.toString());
+    const badge = document.getElementById('seed-badge');
+    if (badge) badge.textContent = `seed ${seed}`;
+  }
   const mulberry = mulberry32(seed);
   // Each click starts fresh — the additive (extend) flow only makes
   // sense for WFC and got muddy across algorithm switches.

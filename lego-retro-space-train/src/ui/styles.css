@@ -131,6 +131,17 @@ html, body {
 }
 .btn:active { transform: scale(0.97); }
 
+/* Seed indicator — looks like a button but displays the current seed.
+   Click copies to clipboard. */
+.btn.seed-badge {
+  background: #1e1e28;
+  color: #c7c7e0;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  border-color: #383848;
+}
+.btn.seed-badge:hover { background: #25253a; }
+
 .slider-wrap {
   display: flex;
   align-items: center;
