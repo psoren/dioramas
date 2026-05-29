@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Entity } from '../sim/Entity';
 import { MAT } from '../world/materials';
+import { BlockRegistry } from '../world/BlockRegistry';
 import { GraphEdge, GraphNode, TrackGraph } from '../world/trackGraph';
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,12 @@ export interface GraphTrainOptions {
   /** Total cars including the locomotive. Default 4 (locomotive + 3
    *  passenger cars). */
   cars?: number;
+  /** Optional shared registry for block signaling. When present, the
+   *  train claims each edge before entering it and refuses to enter
+   *  blocks held by another train — so two trains on the same graph
+   *  no longer pass through each other. Trains on DIFFERENT graphs
+   *  should NOT share a registry (edge ids are per-graph). */
+  blockRegistry?: BlockRegistry;
 }
 
 const DEFAULT_SPEED = 1.6;       // world units / second
@@ -76,6 +83,11 @@ export class GraphTrain implements Entity {
   private trail: TrailSample[] = [];
   private trailDist = 0;
   // Routing happens per-node in pickBestEdge — no cached plan needed.
+  /** Block-signaling: edges this train currently claims, oldest first.
+   *  Newest at end = currentEdge. Older entries are released once the
+   *  tail has cleared. Empty when no blockRegistry was provided. */
+  private occupiedEdges: Array<{ edge: GraphEdge; enteredAtDist: number }> = [];
+  private readonly blockRegistry: BlockRegistry | null;
 
   constructor(opts: GraphTrainOptions) {
     if (opts.targetCycle.length === 0) throw new Error('GraphTrain needs at least one target');
@@ -85,6 +97,7 @@ export class GraphTrain implements Entity {
     this.cruiseSpeed = opts.speed ?? DEFAULT_SPEED;
     this.dwellTime = opts.dwellTime ?? DEFAULT_DWELL;
     this.y = opts.y ?? 0.16;
+    this.blockRegistry = opts.blockRegistry ?? null;
 
     // Place the train somewhere sensible:
     //   - If startAt is given, start at that node.
@@ -121,6 +134,13 @@ export class GraphTrain implements Entity {
         this.direction = -1;
       }
     }
+
+    // Claim the spawn edge. First-come wins: if a later-spawned train
+    // tries to claim the same edge it'll be denied and dwell until clear.
+    if (this.blockRegistry) {
+      this.blockRegistry.tryClaim(this.currentEdge.id, this);
+    }
+    this.occupiedEdges.push({ edge: this.currentEdge, enteredAtDist: 0 });
 
     const numCars = opts.cars ?? 4;
     this.object3d = this.build(numCars);
@@ -188,46 +208,112 @@ export class GraphTrain implements Entity {
       }
     }
     this.refreshPose(dt);
+    this.releasePassedEdges();
   }
 
   /** Called when the train reaches a node. Updates currentEdge/t/direction
    *  for the NEXT edge. Returns false if the train should stop. */
   /** When multiple edges from a node lead to equally-short paths to the
    *  current target, pick one randomly so the train doesn't always take
-   *  the same route. (BFS by edge count gives ties; we break them here.) */
-  private pickBestEdge(from: GraphNode, target: GraphNode): GraphEdge | null {
-    // Score each outgoing edge by BFS distance from the OTHER endpoint to
-    // target. Pick uniformly among min-distance edges.
+   *  the same route. (BFS by edge count gives ties; we break them here.)
+   *  `exclude` is the edge the train just rode IN on — re-entering it
+   *  is a U-turn, which trains shouldn't do at junctions or
+   *  through-stations. Only allowed when there's literally no other
+   *  edge (true degree-1 terminal). */
+  private pickBestEdge(
+    from: GraphNode,
+    target: GraphNode,
+    exclude?: GraphEdge,
+  ): GraphEdge | null {
     const scored: Array<{ edge: GraphEdge; dist: number }> = [];
     for (const e of from.edges) {
+      if (e === exclude) continue;
       const other = e.from === from ? e.to : e.from;
       if (other === target) { scored.push({ edge: e, dist: 0 }); continue; }
       const path = this.graph.shortestPath(other, target);
       if (path === null) continue;
       scored.push({ edge: e, dist: path.length });
     }
-    if (scored.length === 0) return null;
+    if (scored.length === 0) {
+      // No forward option — must reverse onto the excluded edge.
+      return exclude ?? null;
+    }
     const minDist = Math.min(...scored.map((s) => s.dist));
     const best = scored.filter((s) => s.dist === minDist);
     return best[Math.floor(Math.random() * best.length)]!.edge;
   }
 
   private advanceAtNode(node: GraphNode): boolean {
+    // Edge we just rode in on — block re-entering it (no U-turns at
+    // junctions or through-stations) unless it's the only option.
+    const cameFrom = this.currentEdge;
     // Did we arrive at the current target?
     if (node === this.currentTargetNode()) {
       this.t = this.direction === 1 ? 1 : 0;
       this.targetIdx = (this.targetIdx + 1) % this.targetCycle.length;
       this.dwellRemaining = this.dwellTime;
-      const next = this.pickBestEdge(node, this.currentTargetNode());
-      if (next) this.enterEdge(next, node);
+      const next = this.pickBestEdge(node, this.currentTargetNode(), cameFrom);
+      if (next && this.tryEnterEdge(next, node)) return true;
+      // Block-signaling stall at a station: stop and let the dwell time
+      // pass while the next block clears.
+      this.t = this.direction === 1 ? 1 : 0;
       return true;
     }
     // En route to target — pick the best next edge from here (ties broken
     // randomly so different traversals exercise different routes).
-    const next = this.pickBestEdge(node, this.currentTargetNode());
+    const next = this.pickBestEdge(node, this.currentTargetNode(), cameFrom);
     if (!next) return false;
-    this.enterEdge(next, node);
+    if (!this.tryEnterEdge(next, node)) {
+      // Block ahead is occupied. Clamp position at the boundary so we
+      // hold here, then retry next frame when the registry may be clear.
+      this.t = this.direction === 1 ? 1 : 0;
+      return false;
+    }
     return true;
+  }
+
+  /** Attempt to enter `edge` from `fromNode`. Returns false if the
+   *  block is held by another train, OR if the block AFTER it is held
+   *  by another train (one-edge lookahead — keeps a free buffer block
+   *  between trains so they don't squeeze nose-to-tail across cells).
+   *  On success, claims the block and records it in occupiedEdges. */
+  private tryEnterEdge(edge: GraphEdge, fromNode: GraphNode): boolean {
+    if (this.blockRegistry) {
+      if (this.blockRegistry.isHeldByOther(edge.id, this)) return false;
+      // Lookahead: peek at the edge we'd pick at the far end. If another
+      // train holds it, we'd end up immediately stalled there with our
+      // nose against theirs. Wait here instead.
+      const toNode = edge.from === fromNode ? edge.to : edge.from;
+      const peek = this.pickBestEdge(toNode, this.currentTargetNode(), edge);
+      if (peek && this.blockRegistry.isHeldByOther(peek.id, this)) return false;
+      // Both clear (or only owned by us). Take the entry block.
+      this.blockRegistry.tryClaim(edge.id, this);
+    }
+    this.enterEdge(edge, fromNode);
+    this.occupiedEdges.push({ edge, enteredAtDist: this.trailDist });
+    return true;
+  }
+
+  /** Release any claimed edges that the train's tail has fully cleared.
+   *  An edge is clear when the head has travelled past
+   *  (edge.length + total train length) since entering it. */
+  private releasePassedEdges(): void {
+    if (!this.blockRegistry) {
+      // Still keep occupiedEdges trimmed so memory doesn't grow.
+      if (this.occupiedEdges.length > 8) this.occupiedEdges.shift();
+      return;
+    }
+    const trainLength = Math.max(1, this.cars.length) * CAR_SPACING;
+    while (this.occupiedEdges.length > 1) {
+      const oldest = this.occupiedEdges[0]!;
+      if (oldest.edge === this.currentEdge) break;
+      if (oldest.enteredAtDist + oldest.edge.length + trainLength < this.trailDist) {
+        this.occupiedEdges.shift();
+        this.blockRegistry.release(oldest.edge.id, this);
+      } else {
+        break;
+      }
+    }
   }
 
   /** Set currentEdge + initial t/direction for entering `edge` at `fromNode`. */
@@ -322,6 +408,22 @@ export class GraphTrain implements Entity {
   /** Inspect helper: current heading-toward target's label. */
   currentTargetLabel(): string {
     return this.currentTargetNode().label ?? this.currentTargetNode().id;
+  }
+
+  /** Edges remaining until the train reaches its CURRENT target (the
+   *  next station/junction it's heading toward). Includes the edge it's
+   *  on right now plus the shortest-path edges from the head node
+   *  onward. Shrinks as the train advances; resets at each arrival. */
+  routeToNextStop(): GraphEdge[] {
+    if (this.targetCycle.length === 0) return [];
+    const edges: GraphEdge[] = [this.currentEdge];
+    const headNode = this.direction === 1 ? this.currentEdge.to : this.currentEdge.from;
+    const target = this.currentTargetNode();
+    if (headNode === target) return edges;
+    const onward = this.graph.shortestPath(headNode, target);
+    if (!onward) return edges;
+    for (const e of onward) edges.push(e);
+    return edges;
   }
 
   /** The locomotive group — used by external code (e.g. a POV camera) that

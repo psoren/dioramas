@@ -42,10 +42,10 @@ import { portY } from './trackLayout';
 
 const ROTATIONS: readonly Rotation[] = [0, 1, 2, 3];
 // EMPTY removed from the variant pool. Every cell MUST be a track
-// tile. Forces the solver to fill the entire grid instead of letting
-// EMPTY-clusters bunch the network into a corner. Disconnects produced
-// by adjacency-only WFC are handled by bridgeComponents +
-// keepOnlyLargestComponent in the generator.
+// EMPTY tried as a participating variant; even at weight 0.0001 it
+// gets force-picked by WFC propagation when other variants are pruned,
+// producing too-sparse layouts that fail post-process contracts.
+// Excluded → WFC always fills every cell, no escape hatch.
 const TILE_DEFS: readonly TrackTileDef[] = [...ALL_TILES];
 void EMPTY_TILE;
 
@@ -151,7 +151,9 @@ function supportsLevels(def: TrackTileDef): boolean {
   return (
     def.kind === 'elevated-straight-ns' ||
     def.kind === 'elevated-curve-ne' ||
+    def.kind === 'elevated-tee-nes' ||
     def.kind === 'ramp-ns' ||
+    def.kind === 'ramp-ns-tall' ||
     // Under-pass at level k: lower layer at k*H, upper layer at (k+1)*H.
     // Level 0 = ground/level-1 crossing, level 1 = level-1/level-2 crossing.
     def.kind === 'under-pass-nesw' ||
@@ -174,20 +176,20 @@ function defaultWeight(def: TrackTileDef, level: number = 0): number {
     case 'curve-ne': return 4;
     case 'tee-nes': return 2;
     case 'cross-nesw': return 0.5;
-    // Ramps bumped — elevation should be a regular feature, not a rarity.
-    // ramp-ns climbs 1 brick; ramp-ns-tall climbs 2.
-    case 'ramp-ns': return 0.8;
-    case 'ramp-ns-tall': return 0.5;
-    // ELEVATED weights differ by level so level-2 (= level=1 here,
-    // Y=2H, 2 bricks tall) stays rarer than level-1 (= level=0, Y=H).
-    // Both are bumped overall to make bridges common.
+    // Ramps bumped — more level transitions = denser web.
+    case 'ramp-ns': return 1.2;
+    case 'ramp-ns-tall': return 0.7;
+    // Elevated weights bumped ~1.4× from the previous stable set —
+    // dense upper deck but not so much WFC starves on satisfiability.
     case 'elevated-straight-ns':
-      return level === 0 ? 1.5 : 0.6;
+      return level === 0 ? 3.0 : 0.8;
     case 'elevated-curve-ne':
-      return level === 0 ? 1.0 : 0.4;
-    case 'station-n': return 0.05;
+      return level === 0 ? 1.5 : 0.6;
+    case 'elevated-tee-nes':
+      return level === 0 ? 0.4 : 0.15;
+    case 'station-n': return 0;
     case 'under-pass-nesw':
-      return level === 0 ? 0.8 : 0.3;
+      return level === 0 ? 1.3 : 0.5;
     case 'parallel-overpass-ns': return 2.5;
     case 'parallel-overpass-curve-ne': return 2.0;
     case 'parallel-overpass-ramp-ns': return 1.5;

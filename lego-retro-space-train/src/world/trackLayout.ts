@@ -26,7 +26,11 @@ import {
  *  multi-level layouts report correct port Ys). */
 export function portY(tile: PlacedTile, effectivePort: Direction): number {
   const yLift = (tile.level ?? 0) * RAMP_HEIGHT;
-  if (tile.def.kind === 'elevated-straight-ns' || tile.def.kind === 'elevated-curve-ne') {
+  if (
+    tile.def.kind === 'elevated-straight-ns'
+    || tile.def.kind === 'elevated-curve-ne'
+    || tile.def.kind === 'elevated-tee-nes'
+  ) {
     return RAMP_HEIGHT + yLift;
   }
   if (tile.def.kind === 'ramp-ns') {
@@ -108,6 +112,12 @@ export class TrackLayout {
    *  graph builder and renderer treat the under-tile as a separate tile at
    *  y=0 (the primary cell's tile stays at its own y). */
   private readonly underCells = new Map<string, PlacedTile>();
+  /** Purely decorative tiles (Pass 4 upper-deck overlay). NOT visited by
+   *  graph extraction or trim/cleanup — they're rendered by the renderer
+   *  only. Multiple decor tiles per cell are allowed (e.g. stacking).
+   *  Stored separately so `tiles()` (and everything that calls it) stays
+   *  graph-correct. */
+  private readonly decorCells = new Map<string, PlacedTile[]>();
 
   place(
     gx: number,
@@ -151,11 +161,48 @@ export class TrackLayout {
     this.underCells.delete(key(gx, gz));
   }
 
-  /** Drop every tile (primary + under). Used by the WFC densify pass
-   *  before re-populating the layout from a second WFC solve. */
+  /** Place a decorative-only tile (rendered, but ignored by graph
+   *  extraction and trim). Use for Pass-4 upper-deck overlay tiles. */
+  placeDecor(
+    gx: number,
+    gz: number,
+    def: TrackTileDef,
+    rotation: Rotation,
+    routing?: Map<Direction, Direction>,
+    level?: number,
+  ): PlacedTile {
+    const tile: PlacedTile = { gridX: gx, gridZ: gz, def, rotation, routing, level };
+    const k = key(gx, gz);
+    const existing = this.decorCells.get(k);
+    if (existing) existing.push(tile);
+    else this.decorCells.set(k, [tile]);
+    return tile;
+  }
+
+  /** All decorative tiles across the layout, in placement order. */
+  decorTiles(): readonly PlacedTile[] {
+    const out: PlacedTile[] = [];
+    for (const arr of this.decorCells.values()) out.push(...arr);
+    return out;
+  }
+
+  /** Drop every decor tile at (gx, gz). Used by the post-Pass-4
+   *  connector when it wants to replace an elev decor with a ramp. */
+  removeDecorAt(gx: number, gz: number): void {
+    this.decorCells.delete(key(gx, gz));
+  }
+
+  /** All decor tiles at one cell (or empty array if none). */
+  getDecorAt(gx: number, gz: number): readonly PlacedTile[] {
+    return this.decorCells.get(key(gx, gz)) ?? [];
+  }
+
+  /** Drop every tile (primary + under + decor). Used by the WFC densify
+   *  pass before re-populating the layout from a second WFC solve. */
   clear(): void {
     this.cells.clear();
     this.underCells.clear();
+    this.decorCells.clear();
   }
 
   getUnder(gx: number, gz: number): PlacedTile | undefined {

@@ -11,9 +11,6 @@ export interface HUDOptions {
   subtitle?: string;
   /** Optional — when present the HUD shows velocity + lap stats. */
   trackedVehicle?: VehicleTelemetry;
-  /** Optional — when present, the 🎲 Random track button appears and
-   *  clicking it invokes this callback. */
-  onRandomizeTrack?: () => void;
   /** Optional — when present, the 👁 POV button appears. The callback is
    *  passed the new POV-active state (true = POV mode on, false = back to
    *  orbit). HUD owns the visual toggle state. */
@@ -22,13 +19,86 @@ export interface HUDOptions {
   onToggleChase?: (active: boolean) => void;
   /** Optional — adds a 🟦 Grid button that toggles a grid overlay showing
    *  the underlying tile cells. */
-  onToggleGrid?: (active: boolean) => void;
   /** Optional — adds a 🌊 WFC button that rolls a WFC-generated track. */
   onWFCTrack?: () => void;
   /** Optional — adds a time-of-day cycler button. Callback receives a
    *  dayNess value in [0, 1] for fixed-time modes, or `null` to resume the
    *  automatic day/night cycle. */
   onTimeOfDay?: (dayNess: number | null) => void;
+  /** Optional — when present, renders a Trains side panel listing each
+   *  entry. Click toggles its selection; the callback receives the
+   *  selected index (or null when no train is selected). */
+  trains?: ReadonlyArray<{ name: string }>;
+  onSelectTrain?: (idx: number | null) => void;
+}
+
+/** Public helper: refresh the train side panel after track regeneration.
+ *  Re-renders the list and clears any active selection. */
+/** Show/hide the "Generating track…" overlay. Pass true before kicking
+ *  off WFC, false after the new layout is on screen. Use yieldFrame()
+ *  between show() and the WFC call so the browser actually repaints. */
+export function setWFCLoading(active: boolean): void {
+  const el = document.getElementById('wfc-loading');
+  if (el) el.style.display = active ? 'flex' : 'none';
+}
+
+/** Resolves on the next animation frame — yields to the browser so a
+ *  just-shown overlay actually paints before the caller's blocking work. */
+export function yieldFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+export function refreshTrainList(
+  trains: ReadonlyArray<{ name: string }>,
+  onSelectTrain: (idx: number | null) => void,
+): void {
+  const panel = document.getElementById('train-list-panel');
+  if (!panel) return;
+  renderTrainList(panel, trains, onSelectTrain);
+}
+
+/** Latest score breakdown — updated by main.ts after each roll, read
+ *  by the info popover when opened. Lives at module scope so the click
+ *  handler always sees the freshest score. */
+let latestQualityBreakdown: string = '<em>Generate a track first.</em>';
+
+/** Public: update the HUD's score badge + info-popover content. */
+export function setQualityScore(
+  total: number,
+  components: Record<string, number>,
+  details: Record<string, number | string>,
+): void {
+  const badge = document.getElementById('quality-badge');
+  if (badge) {
+    badge.textContent = `${total}/100`;
+    badge.style.color = total >= 70 ? '#7df59f' : total >= 50 ? '#f5dc7d' : '#f57d7d';
+  }
+  // Build a verbose breakdown with formulas + raw values.
+  const FORMULAS: Record<string, string> = {
+    coverage: 'tiles / area, target 70%',
+    connectivity: '1 / N (N = component count)',
+    levelCoverage: 'per-Y-level: cells-with-port@Y / area, mean over active levels (targets Y=H 15%, Y=2H 50%, Y=3H 50%)',
+    rampPeaks: '1 − 0.25 × peak count',
+    stationDistribution: 'mean pairwise grid distance / (½ × grid diagonal)',
+    avgLegLength: '1 − |avg edges per leg − 6| / 6',
+  };
+  const rows = Object.entries(components).map(([k, v]) => {
+    const pct = Math.round(v * 100);
+    const bar = '█'.repeat(Math.round(v * 12)).padEnd(12, '·');
+    return `<div class="qrow"><div class="qrow-head"><b>${k}</b> <span>${pct}/100</span></div><div class="qbar">${bar}</div><div class="qformula">${FORMULAS[k] ?? ''}</div></div>`;
+  }).join('');
+  const detailRows = Object.entries(details)
+    .map(([k, v]) => `<div class="qdetail"><span>${k}</span><span>${v}</span></div>`)
+    .join('');
+  latestQualityBreakdown = `
+    <div class="qtotal">Total <b>${total}</b> / 100</div>
+    <div class="qrows">${rows}</div>
+    <div class="qdetails-head">Raw counts</div>
+    <div class="qdetails">${detailRows}</div>
+  `;
+  // If the popover is currently open, refresh its content live.
+  const body = document.getElementById('quality-popover-body');
+  if (body) body.innerHTML = latestQualityBreakdown;
 }
 
 export function mountHUD(sim: Sim, opts: HUDOptions): void {
@@ -43,22 +113,25 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       <div class="divider"></div>
     `
     : '';
-  const randomizeBtn = opts.onRandomizeTrack
-    ? `<button class="btn" id="btn-randomize">🎲 Random track</button>`
-    : '';
   const povBtn = opts.onTogglePOV
     ? `<button class="btn" id="btn-pov">👁 POV</button>`
     : '';
   const chaseBtn = opts.onToggleChase
     ? `<button class="btn" id="btn-chase">🛰 Chase</button>`
     : '';
-  const gridBtn = opts.onToggleGrid
-    ? `<button class="btn" id="btn-grid">🟦 Grid</button>`
-    : '';
   const wfcBtn = opts.onWFCTrack
     ? `<button class="btn" id="btn-wfc">🌊 WFC</button>
-       <button class="btn" id="btn-prims">🧱 Prim's</button>
-       <button class="btn seed-badge" id="seed-badge" title="Click to copy">seed —</button>`
+       <button class="btn seed-badge" id="seed-badge" title="Click to copy">seed —</button>
+       <span class="btn quality-badge" id="quality-badge" title="Track quality score">— /100</span>
+       <button class="btn info-btn" id="quality-info" title="How is this scored?">ⓘ</button>
+       <label class="levels-wrap" title="Max upper deck level (1-3). Higher = more variants, slower WFC.">
+         <span>Lvl</span>
+         <select class="btn" id="levels-select">
+           <option value="1">1</option>
+           <option value="2">2</option>
+           <option value="3">3</option>
+         </select>
+       </label>`
     : '';
   const todBtn = opts.onTimeOfDay
     ? `<button class="btn" id="btn-tod">🔄 Cycle</button>`
@@ -77,6 +150,20 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       <kbd>drag</kbd> orbit · <kbd>scroll</kbd> zoom
     </div>
 
+    <div id="wfc-loading" style="display:none;">
+      <div class="wfc-spinner"></div>
+      <div class="wfc-loading-label">Generating track…</div>
+    </div>
+
+    <div class="panel" id="train-list-panel" style="${opts.trains && opts.trains.length > 0 ? '' : 'display:none;'}">
+      <div class="eyebrow">TRAINS</div>
+    </div>
+
+    <div class="panel" id="quality-popover" style="display:none;">
+      <div class="eyebrow">TRACK SCORE</div>
+      <div id="quality-popover-body"></div>
+    </div>
+
     <div class="panel" id="controls">
       <button class="btn" id="btn-play">⏸ Pause</button>
       <div class="sep"></div>
@@ -88,9 +175,7 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       <button class="btn" id="btn-reset">Reset View</button>
       ${povBtn}
       ${chaseBtn}
-      ${gridBtn}
       ${todBtn}
-      ${randomizeBtn}
       ${wfcBtn}
     </div>
   `;
@@ -114,11 +199,6 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
   speed.addEventListener('input', () => {
     sim.speedMultiplier = parseFloat(speed.value);
   });
-
-  if (opts.onRandomizeTrack) {
-    const btn = document.getElementById('btn-randomize') as HTMLButtonElement;
-    btn.addEventListener('click', () => opts.onRandomizeTrack!());
-  }
 
   // POV + Chase are mutually exclusive — turning one ON turns the
   // other OFF. Both share the camera-override slot.
@@ -147,30 +227,37 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     });
   }
 
-  if (opts.onToggleGrid) {
-    const btn = document.getElementById('btn-grid') as HTMLButtonElement;
-    let active = false;
-    btn.addEventListener('click', () => {
-      active = !active;
-      btn.classList.toggle('active', active);
-      opts.onToggleGrid!(active);
-    });
-  }
-
   if (opts.onWFCTrack) {
-    // The two buttons both call onWFCTrack — algorithm is selected via
-    // the URL's ?algo= param, which main.ts reads inside the handler.
-    // Clicking either button updates the param (replaceState so reload
-    // remembers the choice) and triggers a fresh generation.
     const wfc = document.getElementById('btn-wfc') as HTMLButtonElement;
-    const prims = document.getElementById('btn-prims') as HTMLButtonElement | null;
-    const setAlgo = (name: string) => {
-      const u = new URL(window.location.href);
-      u.searchParams.set('algo', name);
-      window.history.replaceState({}, '', u.toString());
-    };
-    wfc.addEventListener('click', () => { setAlgo('wfc'); opts.onWFCTrack!(); });
-    if (prims) prims.addEventListener('click', () => { setAlgo('prims'); opts.onWFCTrack!(); });
+    wfc.addEventListener('click', () => { opts.onWFCTrack!(); });
+    // Quality info popover toggle.
+    const infoBtn = document.getElementById('quality-info') as HTMLButtonElement | null;
+    const pop = document.getElementById('quality-popover') as HTMLElement | null;
+    const popBody = document.getElementById('quality-popover-body') as HTMLElement | null;
+    if (infoBtn && pop && popBody) {
+      infoBtn.addEventListener('click', () => {
+        const open = pop.style.display !== 'none';
+        if (open) {
+          pop.style.display = 'none';
+        } else {
+          popBody.innerHTML = latestQualityBreakdown;
+          pop.style.display = '';
+        }
+      });
+    }
+    // Max-level select — read initial value from URL, persist changes
+    // back to URL, regenerate on change.
+    const levelsSel = document.getElementById('levels-select') as HTMLSelectElement | null;
+    if (levelsSel) {
+      const initial = new URLSearchParams(window.location.search).get('levels') ?? '1';
+      if (['1', '2', '3'].includes(initial)) levelsSel.value = initial;
+      levelsSel.addEventListener('change', () => {
+        const u = new URL(window.location.href);
+        u.searchParams.set('levels', levelsSel.value);
+        window.history.replaceState({}, '', u.toString());
+        opts.onWFCTrack!();
+      });
+    }
     // Click the seed badge to copy the seed to clipboard.
     const seedBtn = document.getElementById('seed-badge') as HTMLButtonElement | null;
     if (seedBtn) {
@@ -209,6 +296,11 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
     });
   }
 
+  if (opts.trains && opts.onSelectTrain) {
+    const panel = document.getElementById('train-list-panel') as HTMLElement;
+    renderTrainList(panel, opts.trains, opts.onSelectTrain);
+  }
+
   if (opts.trackedVehicle) {
     const statVel = document.getElementById('stat-vel') as HTMLElement;
     const statLaps = document.getElementById('stat-laps') as HTMLElement;
@@ -219,4 +311,31 @@ export function mountHUD(sim: Sim, opts: HUDOptions): void {
       statLaps.textContent = String(v.laps);
     }, 100);
   }
+}
+
+/** Render the train-list panel. Clicking a row toggles selection;
+ *  clicking the active row again deselects. */
+function renderTrainList(
+  panel: HTMLElement,
+  trains: ReadonlyArray<{ name: string }>,
+  onSelectTrain: (idx: number | null) => void,
+): void {
+  // Clear existing rows (keep the eyebrow header).
+  while (panel.children.length > 1) panel.removeChild(panel.lastChild!);
+  panel.style.display = trains.length > 0 ? '' : 'none';
+  let selected: number | null = null;
+  trains.forEach((t, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'btn train-row';
+    btn.textContent = t.name;
+    btn.addEventListener('click', () => {
+      const next = selected === i ? null : i;
+      selected = next;
+      Array.from(panel.querySelectorAll('.train-row')).forEach((el, j) => {
+        el.classList.toggle('active', j === next);
+      });
+      onSelectTrain(next);
+    });
+    panel.appendChild(btn);
+  });
 }

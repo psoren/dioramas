@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Sim } from './sim/Sim';
-import { mountHUD } from './ui/hud';
+import { mountHUD, refreshTrainList, setQualityScore, setWFCLoading, yieldFrame } from './ui/hud';
 
 // Dev: pipe browser console output to /tmp/sim-console.log via the Vite
 // dev server's POST endpoint, so a CLI agent can read what the browser
@@ -39,11 +39,13 @@ import { AstronautPedestrian } from './entities/AstronautPedestrian';
 import { ApartmentBuilding } from './entities/ApartmentBuilding';
 import { JunctionTrack } from './entities/JunctionTrack';
 import { GraphTrain } from './entities/GraphTrain';
+import { TrainRouteHighlight } from './entities/TrainRouteHighlight';
+import { BlockRegistry } from './world/BlockRegistry';
 import { generateRandomGraphTrack } from './world/trackGraphGenerators';
 import { generateWFCGraph, extractGraphFromLayout, extendWFCLayout } from './world/wfcGenerator';
 import { pickGenerator } from './world/generators';
-import type { GraphNode, TrackGraph } from './world/trackGraph';
 import { TrackLayout } from './world/trackLayout';
+import { scoreLayout } from './world/trackQuality';
 import { mountInspectPanel, describeEntity } from './ui/inspectPanel';
 
 window.addEventListener('error', (event) => {
@@ -136,20 +138,16 @@ const tracked = builtEntities.find(({ spec, entity }) => spec.telemetry && hasTe
 const randomEntities: Entity[] = [];
 // Module-level handle to the active train so the POV button can target it.
 let currentTrain: GraphTrain | null = null;
+// All trains currently on the plate (for the side-panel list). Repopulated
+// each time the track is regenerated.
+const activeTrains: Array<{ name: string; train: GraphTrain }> = [];
+// Highlight entity for the selected train's route. Reused across selections.
+let routeHighlight: TrainRouteHighlight | null = null;
 // Cumulative WFC layout — each WFC roll's tiles are merged into this
 // (new tile wins on cell conflicts). The visible track is rebuilt from
 // this union on every click, so each roll APPENDS to the network rather
-// than replacing it. Cleared by the "🎲 Random Track" button.
+// than replacing it.
 const cumulativeLayout = new TrackLayout();
-// Optional pin: ?seed=N in the URL forces every "random" roll to use the
-// same seed, so a layout can be reproduced for debugging. The HUD click
-// of "Random Track" still re-rolls a NEW random seed (unless ?seed is
-// present at page load — then it sticks).
-const URL_SEED = (() => {
-  const p = new URLSearchParams(window.location.search);
-  const v = p.get('seed');
-  return v ? Number(v) : null;
-})();
 function placeTrackOnGraph(
   graph: ReturnType<typeof generateRandomGraphTrack>['graph'],
   stations: ReturnType<typeof generateRandomGraphTrack>['stations'],
@@ -158,91 +156,101 @@ function placeTrackOnGraph(
     `placeTrackOnGraph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ` +
     `${stations.length} stations (${stations.filter((s) => s.edges.length >= 2).length} through)`,
   );
+  // Fresh roll: drop any prior train selections and reset the panel state.
+  activeTrains.length = 0;
+  if (routeHighlight) routeHighlight.setTrain(null);
   // Random saturated hue per roll so consecutive layouts look obviously
   // different — useful for confirming a click actually rebuilt the track.
-  const deckColor = new THREE.Color().setHSL(Math.random(), 0.55, 0.55).getHex();
-  console.log(`track deck color: #${deckColor.toString(16).padStart(6, '0')}`);
-  const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0], deckColor }));
+  // Decor deck (Pass 4 upper deck) gets a second random hue OFFSET by
+  // ~0.4 from the ground hue so the two networks don't look the same.
+  const groundHue = Math.random();
+  const decorHue = (groundHue + 0.35 + Math.random() * 0.3) % 1;
+  const deckColor = new THREE.Color().setHSL(groundHue, 0.55, 0.55).getHex();
+  const decorDeckColor = new THREE.Color().setHSL(decorHue, 0.6, 0.6).getHex();
+  console.log(`track deck color: #${deckColor.toString(16).padStart(6, '0')} / decor #${decorDeckColor.toString(16).padStart(6, '0')}`);
+  const track = sim.add(new JunctionTrack({ graph, position: [0, 0.02, 0], deckColor, decorDeckColor }));
   randomEntities.push(track);
-  const throughStations = stations.filter((s) => s.edges.length >= 2);
-  // Use the Eulerian tour as the train's target cycle so it actually
-  // walks every edge instead of bouncing between 2-6 stations on
-  // overlapping shortest paths. Coverage probe goes ~53% → ~70%+.
-  const tour = graph.eulerianTour();
-  const targets = tour.length >= 2 ? tour : throughStations;
+  // Targets = through-stations in the order extractGraphFromLayout
+  // assigned their labels (A, B, C, …). Train walks station → next
+  // station via shortest-path between each pair, so a route like
+  // A→B→C→D→A spans multiple edges per leg — the user can SEE the
+  // train heading to its next stop. (Eulerian tour gave every node
+  // as a target, which collapsed the "next stop" to one edge and
+  // made the route-highlight feature pointless.)
+  const targets = stations.filter((s) => s.edges.length >= 2);
   if (targets.length >= 2) {
+    // Single BlockRegistry, shared between BOTH trains since they
+    // run on the same graph. Different graphs would mean different
+    // edge id namespaces and no contention — which silently failed
+    // wherever the elevated graph traced through ground cells.
+    const groundBlocks = new BlockRegistry();
     const train = sim.add(new GraphTrain({
       graph,
       targetCycle: targets,
       startAt: targets[0],
+      blockRegistry: groundBlocks,
     }));
     train.object3d.position.y += 0.02;
     randomEntities.push(train);
     currentTrain = train;
+    activeTrains.push({ name: 'Train 1', train });
     const switchUpdater: Entity = {
       object3d: new THREE.Group(),
       update: () => updateSwitches(track, train, graph),
     };
     randomEntities.push(sim.add(switchUpdater));
-    // Second train: build an ELEVATED graph from the same layout where
-    // the trace prefers the primary tile at multi-Y transitions. The
-    // edges through parallel-overpass sections then climb to the upper
-    // layer, so train 2 visibly rides over train 1 wherever WFC placed
-    // an overpass. If the elevated graph has no through-stations we
-    // fall back to running on the ground graph at a half-cycle offset.
-    let elevatedTargets: GraphNode[] | null = null;
-    let elevatedGraph: TrackGraph | null = null;
-    try {
-      const elevated = extractGraphFromLayout(graph.layout, Math.random, { preferPrimary: true });
-      const through = elevated.stations.filter((s) => s.edges.length >= 2);
-      if (through.length >= 2) {
-        elevatedGraph = elevated.graph;
-        // Same Eulerian-tour treatment for the elevated train.
-        const elevTour = elevated.graph.eulerianTour();
-        elevatedTargets = elevTour.length >= 2 ? elevTour : through;
-      }
-    } catch (err) {
-      console.warn('elevated graph build failed; train 2 falls back to ground', err);
-    }
-    if (elevatedGraph && elevatedTargets) {
-      // No second JunctionTrack: the ground JunctionTrack already
-      // renders the upper deck at every parallel-overpass cell (its
-      // dedicated render pass). A second track entity here would
-      // re-render every cell the elevated graph touches — most of
-      // which are ground cells the first JunctionTrack already drew,
-      // causing visible deck duplication.
-      const train2 = sim.add(new GraphTrain({
-        graph: elevatedGraph,
-        targetCycle: elevatedTargets,
-        startAt: elevatedTargets[0],
-      }));
-      train2.object3d.position.y += 0.02;
-      randomEntities.push(train2);
-    } else if (targets.length >= 3) {
+    // Second train at an offset start so they don't spawn on top of
+    // each other. Same registry → block-signaling forces them apart.
+    if (targets.length >= 3) {
       const startIdx = Math.floor(targets.length / 2);
       const train2 = sim.add(new GraphTrain({
         graph,
         targetCycle: targets,
         startAt: targets[startIdx],
+        blockRegistry: groundBlocks,
       }));
       train2.object3d.position.y += 0.02;
       randomEntities.push(train2);
+      activeTrains.push({ name: 'Train 2', train: train2 });
     }
+  }
+  // Repopulate the side-panel list with this roll's trains.
+  refreshTrainList(activeTrains, onSelectTrain);
+}
+
+/** Wire a train selection from the side panel → glowing rainbow route.
+ *  The highlight polls the train each frame so it shortens as it
+ *  advances and refreshes at every arrival. */
+function onSelectTrain(idx: number | null): void {
+  if (!routeHighlight) {
+    routeHighlight = sim.add(new TrainRouteHighlight()) as TrainRouteHighlight;
+  }
+  const entry = idx === null ? null : activeTrains[idx];
+  routeHighlight.setTrain(entry?.train ?? null);
+}
+
+async function wfcTrack(seedOverride?: number): Promise<void> {
+  // Show the loading overlay and wait one animation frame so the
+  // browser actually paints it before WFC starts blocking the main
+  // thread. Without the yield, the overlay show + WFC + overlay hide
+  // all run in one tick and the user sees a blank screen instead.
+  setWFCLoading(true);
+  try {
+    await yieldFrame();
+    await wfcTrackInner(seedOverride);
+  } finally {
+    setWFCLoading(false);
   }
 }
 
-function randomizeTrack(): void {
-  for (const e of randomEntities) sim.remove(e);
-  randomEntities.length = 0;
-  cumulativeLayout.clear(); // 🎲 Random Track is a full reset.
-  const seed = URL_SEED ?? Math.floor(Math.random() * 1_000_000);
-  console.log(`track seed: ${seed} (pin with ?seed=${seed})`);
-  const mulberry = mulberry32(seed);
-  const { graph, stations } = generateRandomGraphTrack(mulberry);
-  placeTrackOnGraph(graph, stations);
+function wfcTrackInner(seedOverride?: number): Promise<void> {
+  return new Promise((resolve) => {
+    wfcTrackSync(seedOverride);
+    resolve();
+  });
 }
 
-function wfcTrack(seedOverride?: number): void {
+function wfcTrackSync(seedOverride?: number): void {
   // Generate FIRST, then tear down — if WFC fails we keep the existing
   // layout on screen instead of clearing to nothing. No template
   // fallback: this button is exclusively WFC, otherwise it'd silently
@@ -251,9 +259,15 @@ function wfcTrack(seedOverride?: number): void {
   // solver). If every size fails we leave the previous layout intact.
   const seed = seedOverride ?? Math.floor(Math.random() * 1_000_000);
   // Pick generator algorithm from URL param `?algo=wfc|prims`.
-  const algo = new URLSearchParams(window.location.search).get('algo');
+  const params = new URLSearchParams(window.location.search);
+  const algo = params.get('algo');
   const generator = pickGenerator(algo);
-  console.log(`gen seed: ${seed}  algo: ${algo ?? 'wfc'}`);
+  // Max level for the WFC variant pool — capped at 3 (HUD limit).
+  const levelsParam = Number(params.get('levels'));
+  const maxLevel = Number.isFinite(levelsParam) && levelsParam >= 1 && levelsParam <= 3
+    ? Math.floor(levelsParam)
+    : 1;
+  console.log(`gen seed: ${seed}  algo: ${algo ?? 'wfc'}  maxLevel: ${maxLevel}`);
   // Persist seed in the URL (?wfc-seed=N) so a refresh reproduces the
   // same layout, and surface it in the HUD seed badge so it can be
   // copied with one click.
@@ -275,9 +289,13 @@ function wfcTrack(seedOverride?: number): void {
     let result: ReturnType<typeof generator> | null = null;
     for (const size of [13, 11, 9]) {
       try {
-        const r = generator({ size, rng: mulberry });
+        const r = generator({ size, rng: mulberry, maxLevel });
         result = r;
         console.log(`${algo ?? 'wfc'} ${size}x${size} (first roll) done after ${r.retries ?? 0} retries`);
+        // Compute + surface quality score for this roll.
+        const score = scoreLayout(r, size, maxLevel);
+        setQualityScore(score.total, score.components, score.details);
+        console.log(`quality: ${score.total}/100`, score.components, score.details);
         break;
       } catch (err) {
         console.warn(`${algo ?? 'wfc'} ${size}x${size} failed:`, err);
@@ -319,6 +337,12 @@ function wfcTrack(seedOverride?: number): void {
     } else {
       cumulativeLayout.placeUnder(t.gridX, t.gridZ, t.def, t.rotation, t.routing, t.level);
     }
+  }
+  // Decor tiles (Pass 4 upper deck) — invisible to graph extraction but
+  // the renderer needs them. Copy after primary/under so cell ordering
+  // doesn't matter.
+  for (const t of rolledLayout.decorTiles()) {
+    cumulativeLayout.placeDecor(t.gridX, t.gridZ, t.def, t.rotation, t.routing, t.level);
   }
   // Build a single combined graph from the cumulative layout.
   let combined: ReturnType<typeof extractGraphFromLayout>;
@@ -377,50 +401,16 @@ function mulberry32(seed: number): () => number {
 }
 
 // ----- UI -----
-// Grid overlay — toggled by the 🟦 Grid button. Spans the full base plate
-// (±BASE_SIZE), with cyan lines on every TILE_SIZE cell boundary. Floats
-// above the deck so it's always visible (depthTest off + high renderOrder).
-const gridGroup = (() => {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x00ffff,
-    transparent: true,
-    opacity: 0.85,
-    depthTest: false,
-    depthWrite: false,
-  });
-  const tile = 2.4;
-  const PLATE_HALF = 28; // BASE_SIZE
-  const span = 2 * PLATE_HALF;
-  const halfCells = Math.ceil(PLATE_HALF / tile); // 12
-  const lineThickness = 0.06;
-  const yLine = 1.6;
-  for (let i = -halfCells; i <= halfCells; i++) {
-    const x = (i + 0.5) * tile;
-    if (Math.abs(x) > PLATE_HALF + tile) continue;
-    const v = new THREE.Mesh(new THREE.BoxGeometry(lineThickness, 0.01, span), mat);
-    v.position.set(x, yLine, 0);
-    v.renderOrder = 999;
-    g.add(v);
-    const h2 = new THREE.Mesh(new THREE.BoxGeometry(span, 0.01, lineThickness), mat);
-    h2.position.set(0, yLine, x);
-    h2.renderOrder = 999;
-    g.add(h2);
-  }
-  g.visible = false;
-  return g;
-})();
-sim.scene.add(gridGroup);
 
 mountHUD(sim, {
   setNumber: '40786',
-  setName: 'Micro Command Centre',
+  setName: 'Micro Train Centre',
   subtitle: tracked && hasTelemetry(tracked.entity) ? 'Classic Space · Telemetry' : 'Classic Space',
   trackedVehicle: tracked && hasTelemetry(tracked.entity) ? tracked.entity : undefined,
-  onRandomizeTrack: randomizeTrack,
   onWFCTrack: wfcTrack,
-  onToggleGrid: (active) => { gridGroup.visible = active; },
   onTimeOfDay: (dayNess) => { dayNightCycle.lockTo(dayNess); },
+  trains: activeTrains,
+  onSelectTrain,
   onTogglePOV: (active) => {
     if (!active || !currentTrain) {
       sim.cameraOverride = undefined;

@@ -26,6 +26,8 @@ export interface JunctionTrackOptions {
   /** Optional deck colour override. Lets each fresh roll pick a random
    *  colour so consecutive WFC layouts are visually distinguishable. */
   deckColor?: number;
+  /** Optional deck colour for the Pass-4 decor overlay (upper deck). */
+  decorDeckColor?: number;
 }
 
 /**
@@ -44,10 +46,12 @@ export class JunctionTrack implements Entity {
   private chevrons = new Map<string, THREE.Group>();
 
   private readonly deckColor?: number;
+  private readonly decorDeckColor?: number;
 
   constructor(opts: JunctionTrackOptions) {
     this.graph = opts.graph;
     this.deckColor = opts.deckColor;
+    this.decorDeckColor = opts.decorDeckColor;
     this.object3d = this.build();
     if (opts.position) this.object3d.position.fromArray(opts.position);
   }
@@ -108,17 +112,35 @@ export class JunctionTrack implements Entity {
     //     but aren't reached by the trace — those would be rendered as
     //     "rogue" pillars with no deck above them. ---
     const usedCells = new Set<string>();
+    // Per-level coverage: a cell with both Pass-1 primary (Y=H) and
+    // Pass-4 under (Y=2H) only renders pillars at levels where an edge
+    // actually runs. Without this, Pass-4 under-tiles get tall pillars
+    // even when no Y=2H edge passes through, producing orphan poles.
+    const usedCellLevels = new Set<string>();
+    const levelFromY = (y: number): number =>
+      Math.max(0, Math.round(y / RAMP_HEIGHT) - 1);
     for (const edge of this.graph.edges) {
       usedCells.add(`${edge.from.gridX},${edge.from.gridZ}`);
       usedCells.add(`${edge.to.gridX},${edge.to.gridZ}`);
       for (const [gx, gz] of edge.midCells) usedCells.add(`${gx},${gz}`);
+      // Walk the curve and mark each cell at its sampled level.
+      const samples = edge.curve.getPoints(Math.max(20, edge.midCells.length * 4));
+      for (const p of samples) {
+        const gx = Math.round(p.x / TILE_SIZE);
+        const gz = Math.round(p.z / TILE_SIZE);
+        const lvl = levelFromY(p.y);
+        usedCellLevels.add(`${gx},${gz}:L${lvl}`);
+      }
     }
     const pillarMat = MAT.grayDark;
     for (const tile of this.graph.layout.tiles()) {
       const isElevatedStraight = tile.def.kind === 'elevated-straight-ns';
       const isElevatedCurve = tile.def.kind === 'elevated-curve-ne';
-      if (!isElevatedStraight && !isElevatedCurve) continue;
+      const isElevatedTee = tile.def.kind === 'elevated-tee-nes';
+      if (!isElevatedStraight && !isElevatedCurve && !isElevatedTee) continue;
       if (!usedCells.has(`${tile.gridX},${tile.gridZ}`)) continue;
+      // Skip orphan pillars at this tile's level — no graph edge touches it.
+      if (!usedCellLevels.has(`${tile.gridX},${tile.gridZ}:L${tile.level ?? 0}`)) continue;
       const cx = tile.gridX * TILE_SIZE;
       const cz = tile.gridZ * TILE_SIZE;
       const horizontalTrack = tile.rotation === 1 || tile.rotation === 3;
@@ -130,6 +152,8 @@ export class JunctionTrack implements Entity {
       const acrossX = horizontalTrack ? 0 : 1;
       const acrossZ = horizontalTrack ? 1 : 0;
       const spacing = TILE_SIZE * 0.4;
+      // Pillar height: elevated-* tiles sit one level above their base, so
+      // their port Y is (level+1)*H. Always positive (level ≥ 0).
       const totalHeight = (1 + (tile.level ?? 0)) * RAMP_HEIGHT;
       const pillarGeo = new THREE.BoxGeometry(0.16, totalHeight, 0.16);
       // Detect parallel-overpass cell: under-tile present at the SAME
@@ -160,6 +184,37 @@ export class JunctionTrack implements Entity {
         g.add(pillar);
       }
     }
+    // Decor-tile pillars (Pass-4 upper deck). Same shape as edge pillars
+    // but no usedCells gate — every decor elevated tile gets supports.
+    for (const tile of this.graph.layout.decorTiles()) {
+      const isElevatedStraight = tile.def.kind === 'elevated-straight-ns';
+      const isElevatedCurve = tile.def.kind === 'elevated-curve-ne';
+      const isElevatedTee = tile.def.kind === 'elevated-tee-nes';
+      if (!isElevatedStraight && !isElevatedCurve && !isElevatedTee) continue;
+      const cx = tile.gridX * TILE_SIZE;
+      const cz = tile.gridZ * TILE_SIZE;
+      const horizontalTrack = tile.rotation === 1 || tile.rotation === 3;
+      const alongX = horizontalTrack ? 1 : 0;
+      const alongZ = horizontalTrack ? 0 : 1;
+      const spacing = TILE_SIZE * 0.4;
+      const totalHeight = (1 + (tile.level ?? 0)) * RAMP_HEIGHT;
+      const pillarGeo = new THREE.BoxGeometry(0.16, totalHeight, 0.16);
+      const offsetsPair: ReadonlyArray<readonly [number, number]> = [[-1, -1], [1, 1]];
+      const offsets = isElevatedStraight ? offsetsPair : [[0, 0]];
+      for (const [signX, signZ] of offsets) {
+        const offX = signX * alongX;
+        const offZ = signZ * alongZ;
+        const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+        pillar.position.set(
+          cx + offX * spacing,
+          totalHeight / 2,
+          cz + offZ * spacing,
+        );
+        pillar.castShadow = true;
+        pillar.receiveShadow = true;
+        g.add(pillar);
+      }
+    }
 
     // Shared stripe material — black centre line, double-sided since the
     // strip geometry's normal points DOWN (triangles wound such that the
@@ -174,6 +229,13 @@ export class JunctionTrack implements Entity {
       this.drawTrackAlongCurve(g, edge.curve, deckMat, stripeMat);
     }
 
+    // Decor tile materials (upper deck — Pass 4, purely visual).
+    const deckMatUpper = MAT.gray.clone();
+    deckMatUpper.side = THREE.DoubleSide;
+    if (this.decorDeckColor !== undefined) deckMatUpper.color.setHex(this.decorDeckColor);
+    const stripeMatUpper = MAT.black.clone();
+    stripeMatUpper.side = THREE.DoubleSide;
+
     // --- Parallel-overpass upper decks ---
     // Where primary is ELEVATED and has an under-tile at the SAME
     // rotation (= a parallel overpass — both layers same direction),
@@ -187,12 +249,67 @@ export class JunctionTrack implements Entity {
       if (!under) continue;
       if (cellTile.rotation !== under.rotation) continue;
       if (cellTile.def.kind !== 'elevated-straight-ns' && cellTile.def.kind !== 'elevated-curve-ne') continue;
+      // ONLY fire for the original parallel-overpass case (under is a
+      // ground straight/curve at Y=0). Pass 4 stacks elev@L=1 etc. in
+      // the under-slot — for those, the graph edge already renders the
+      // primary, so firing here causes the upper deck to be drawn twice
+      // and z-fights the yellow stripe.
+      if (under.def.kind !== 'straight-ns' && under.def.kind !== 'curve-ne') continue;
+      if ((under.level ?? 0) !== 0) continue;
       const cellPorts = effectivePorts(cellTile);
       if (cellPorts.length !== 2) continue;
       const samples = 24;
       const points = sampleWorldPath(cellTile, cellPorts[0]!, cellPorts[1]!, samples);
       const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
       this.drawTrackAlongCurve(g, curve, deckMat, stripeMat);
+    }
+
+    // --- Decor tiles (Pass 4 upper deck — purely visual). Render the
+    //     centreline of every 2/3-port decor tile in decorDeckColor.
+    for (const tile of this.graph.layout.decorTiles()) {
+      const ports = effectivePorts(tile);
+      if (ports.length < 2) continue;
+      const samples = 24;
+      const pairs: Array<[Direction, Direction]> = [];
+      if (ports.length === 2) {
+        pairs.push([ports[0]!, ports[1]!]);
+      } else if (ports.length === 3) {
+        const opp = (d: Direction): Direction => ({ N: 'S', S: 'N', E: 'W', W: 'E' } as const)[d];
+        let throughA: Direction | null = null;
+        let throughB: Direction | null = null;
+        let branch: Direction | null = null;
+        for (const p of ports) {
+          const o = opp(p);
+          if (ports.includes(o) && throughA === null) { throughA = p; throughB = o; }
+        }
+        if (throughA && throughB) {
+          for (const p of ports) if (p !== throughA && p !== throughB) branch = p;
+          pairs.push([throughA, throughB]);
+          if (branch) pairs.push([throughA, branch]);
+        } else {
+          pairs.push([ports[0]!, ports[1]!]);
+          pairs.push([ports[1]!, ports[2]!]);
+        }
+      } else {
+        continue;
+      }
+      const isRamp = tile.def.kind === 'ramp-ns' || tile.def.kind === 'ramp-ns-tall';
+      for (const [a, b] of pairs) {
+        const points = sampleWorldPath(tile, a, b, samples);
+        // Ramps get cosine ease so the slope is zero at both ends —
+        // matches the smoothing graph edges apply via sampleRampRun.
+        if (isRamp && points.length > 1) {
+          const startY = points[0]!.y;
+          const endY = points[points.length - 1]!.y;
+          const delta = endY - startY;
+          for (let i = 0; i < points.length; i++) {
+            const t = i / (points.length - 1);
+            points[i]!.y = startY + (delta / 2) * (1 - Math.cos(Math.PI * t));
+          }
+        }
+        const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+        this.drawTrackAlongCurve(g, curve, deckMatUpper, stripeMatUpper);
+      }
     }
 
     // --- Switch-state chevrons ---
@@ -285,8 +402,34 @@ export class JunctionTrack implements Entity {
       const pz = node.pos.z + chosen[1] * offset;
       const yawY = Math.atan2(trackDx, trackDz) - Math.PI / 2;
 
-      // 1. Platform deck.
-      const platGeo = new THREE.BoxGeometry(TILE_SIZE * 1.8, 0.18, 0.5);
+      // 0. Hill — a green mound that visually grounds an elevated
+      //    station so the platform doesn't float. A truncated cone
+      //    from y=0 up to the platform's base. Radius capped so the
+      //    base doesn't bulge over the track at ground level (track
+      //    edge at 0.45 from rail centre; platform offset 1.32).
+      //    Skipped for ground-level stations (py=0).
+      if (py > 0.01) {
+        const hillGeo = new THREE.CylinderGeometry(
+          0.35,                        // top radius — flat enough for platform
+          0.7,                         // base radius — clears track edge (0.45)
+          py + 0.05,                   // slight overlap with platform
+          12,
+        );
+        const hillMat = new THREE.MeshStandardMaterial({
+          color: 0x6b8e3d,
+          roughness: 0.95,
+          metalness: 0,
+        });
+        const hill = new THREE.Mesh(hillGeo, hillMat);
+        hill.position.set(px, (py + 0.05) / 2, pz);
+        hill.receiveShadow = true;
+        hill.castShadow = true;
+        g.add(hill);
+      }
+
+      // 1. Platform deck. Half the along-track length of the cell so
+      //    it doesn't visually spill into adjacent cells.
+      const platGeo = new THREE.BoxGeometry(TILE_SIZE * 0.9, 0.18, 0.5);
       const plat = new THREE.Mesh(platGeo, platMat);
       plat.position.set(px, py + 0.1, pz);
       plat.rotation.y = yawY;
@@ -296,7 +439,7 @@ export class JunctionTrack implements Entity {
 
       // 2. Back wall — runs along the far edge of the platform (the side
       //    away from the track). Acts as the station building's back.
-      const wallGeo = new THREE.BoxGeometry(TILE_SIZE * 1.6, 0.42, 0.08);
+      const wallGeo = new THREE.BoxGeometry(TILE_SIZE * 0.8, 0.42, 0.08);
       const wall = new THREE.Mesh(wallGeo, MAT.white);
       wall.position.set(
         px + chosen[0] * 0.2,
@@ -309,7 +452,7 @@ export class JunctionTrack implements Entity {
       g.add(wall);
 
       // 3. Canopy roof — thin slab spanning the platform, hovering above.
-      const roofGeo = new THREE.BoxGeometry(TILE_SIZE * 1.9, 0.06, 0.66);
+      const roofGeo = new THREE.BoxGeometry(TILE_SIZE * 1.0, 0.06, 0.66);
       const roof = new THREE.Mesh(roofGeo, MAT.gray);
       roof.position.set(px, py + 0.74, pz);
       roof.rotation.y = yawY;
@@ -318,7 +461,7 @@ export class JunctionTrack implements Entity {
 
       // 4. Two support posts at the track-facing front edge of the platform.
       const postGeo = new THREE.BoxGeometry(0.08, 0.6, 0.08);
-      for (const longOff of [-TILE_SIZE * 0.7, TILE_SIZE * 0.7]) {
+      for (const longOff of [-TILE_SIZE * 0.35, TILE_SIZE * 0.35]) {
         const ox = trackDx * longOff;
         const oz = trackDz * longOff;
         const post = new THREE.Mesh(postGeo, MAT.grayDark);

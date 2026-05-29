@@ -190,6 +190,50 @@ export const ELEVATED_CURVE_NE: TrackTileDef = {
   },
 };
 
+// --- Elevated TEE: 3-way junction at y=RAMP_HEIGHT --------------------
+// Same shape as TEE_NES but lifted onto the upper deck. Lets WFC place
+// a branch on the elevated layer (e.g. a spur off a bridge) instead of
+// only running plain straights/curves up there.
+export const ELEVATED_TEE_NES: TrackTileDef = {
+  kind: 'elevated-tee-nes',
+  basePorts: ['N', 'E', 'S'],
+  samplePath(from, to, samples) {
+    requirePair(this, from, to);
+    const pair = `${from}${to}`;
+    const pts: THREE.Vector3[] = [];
+    if (pair === 'NS' || pair === 'SN') {
+      const a = portPos(from); a.y = RAMP_HEIGHT;
+      const b = portPos(to);   b.y = RAMP_HEIGHT;
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples;
+        pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+      }
+      return pts;
+    }
+    if (pair === 'NE' || pair === 'EN') {
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples;
+        const theta = t * Math.PI / 2;
+        const x = HALF - HALF * Math.cos(theta);
+        const z = -HALF + HALF * Math.sin(theta);
+        pts.push(new THREE.Vector3(x, RAMP_HEIGHT, z));
+      }
+      if (from === 'E') pts.reverse();
+      return pts;
+    }
+    // pair === 'ES' || 'SE'
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const theta = t * Math.PI / 2;
+      const x = HALF - HALF * Math.cos(theta);
+      const z = HALF - HALF * Math.sin(theta);
+      pts.push(new THREE.Vector3(x, RAMP_HEIGHT, z));
+    }
+    if (from === 'E') pts.reverse();
+    return pts;
+  },
+};
+
 // --- Empty tile: 0 ports, no traversal ---------------------------------
 // Used by WFC to leave a cell blank. Never actually rendered as a tile;
 // the layout simply doesn't place anything when WFC picks EMPTY for a
@@ -371,15 +415,43 @@ export const CROSS_NESW: TrackTileDef = {
   basePorts: ['N', 'E', 'S', 'W'],
   samplePath(from, to, samples) {
     requirePair(this, from, to);
-    // Straight line through the centre for any pair. Sharper turns for
-    // perpendicular pairs are fine — vehicles slow down a beat across the
-    // cross visually anyway.
+    // Through-pairs (NS, EW) → straight line.
+    // Turn-pairs (NE, NW, SE, SW) → quarter arc through the appropriate
+    // corner, same shape as a regular CURVE_NE — so a train turning at
+    // a cross-roads banks smoothly instead of pivoting on a dime.
+    const pair = `${from}${to}`;
+    const pts: THREE.Vector3[] = [];
+    if (pair === 'NS' || pair === 'SN' || pair === 'EW' || pair === 'WE') {
+      const a = portPos(from);
+      const b = portPos(to);
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples;
+        pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+      }
+      return pts;
+    }
+    // Turn pair. Arc centre is at the corner where both involved sides
+    // meet: NE → corner (+HALF, -HALF), SE → (+HALF, +HALF),
+    // SW → (-HALF, +HALF), NW → (-HALF, -HALF).
+    const cx = (from === 'E' || to === 'E') ? HALF : -HALF;
+    const cz = (from === 'S' || to === 'S') ? HALF : -HALF;
+    // Quarter-arc from `from` port to `to` port, centred at (cx, cz).
     const a = portPos(from);
     const b = portPos(to);
-    const pts: THREE.Vector3[] = [];
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
-      pts.push(new THREE.Vector3().lerpVectors(a, b, t));
+      // Linear interp gives endpoints; we shift toward the arc by
+      // rotating around the corner. Use polar around corner:
+      // start angle = atan2(a.z - cz, a.x - cx), end same for b.
+      const a0 = Math.atan2(a.z - cz, a.x - cx);
+      const a1 = Math.atan2(b.z - cz, b.x - cx);
+      // Shortest-arc interpolation (the two ports are at 90° apart so
+      // we pick the +/- 90° direction with sign of (a1 - a0)).
+      let d = a1 - a0;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      const ang = a0 + d * t;
+      pts.push(new THREE.Vector3(cx + HALF * Math.cos(ang), 0, cz + HALF * Math.sin(ang)));
     }
     return pts;
   },
@@ -394,7 +466,7 @@ function requirePair(def: TrackTileDef, from: Direction, to: Direction): void {
 
 export const ALL_TILES: readonly TrackTileDef[] = [
   STRAIGHT_NS, CURVE_NE, TEE_NES, CROSS_NESW, RAMP_NS, RAMP_NS_TALL,
-  ELEVATED_STRAIGHT_NS, ELEVATED_CURVE_NE, STATION_N, UNDER_PASS_NESW,
+  ELEVATED_STRAIGHT_NS, ELEVATED_CURVE_NE, ELEVATED_TEE_NES, STATION_N, UNDER_PASS_NESW,
   // Parallel-overpass tiles (same-direction stacking) deliberately
   // EXCLUDED — they place a duplicate track above another with no
   // way to reach the upper layer. The under-pass tile + ramp inserts

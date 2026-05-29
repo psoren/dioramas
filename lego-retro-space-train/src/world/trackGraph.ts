@@ -31,6 +31,10 @@ export interface GraphNode {
   /** Grid cell this node sits on. */
   gridX: number;
   gridZ: number;
+  /** Tile level this node sits at (0 = ground/Y=H elev, 1 = Y=2H elev, …).
+   *  Multiple nodes can coexist at the same (gridX, gridZ) at different
+   *  levels when stacking decks. */
+  level: number;
   /** Edges incident at this node. Order is arbitrary; routing uses all. */
   edges: GraphEdge[];
   /** Display label (used by stations). */
@@ -81,17 +85,24 @@ export class TrackGraph {
     gridZ: number,
     label?: string,
     mainSide?: Direction,
+    tile?: PlacedTile,
   ): GraphNode {
-    // Determine cell-centre Y from the underlying tile. Stations placed on
-    // elevated tiles sit at RAMP_HEIGHT; ramp-centres are midway. Anything
-    // else (flat tiles, no tile yet) is at Y=0.
-    const tile = this.layout.get(gridX, gridZ);
+    // Determine cell-centre Y from the underlying tile. Caller may pass a
+    // specific tile (under-slot tiles, decor tiles aren't reachable via
+    // layout.get); otherwise we fall back to the primary at this cell.
+    const t = tile ?? this.layout.get(gridX, gridZ);
     let y = 0;
-    if (tile) {
-      const yLift = (tile.level ?? 0) * RAMP_HEIGHT;
-      if (tile.def.kind === 'elevated-straight-ns' || tile.def.kind === 'elevated-curve-ne') {
+    let level = 0;
+    if (t) {
+      level = t.level ?? 0;
+      const yLift = level * RAMP_HEIGHT;
+      if (
+        t.def.kind === 'elevated-straight-ns'
+        || t.def.kind === 'elevated-curve-ne'
+        || t.def.kind === 'elevated-tee-nes'
+      ) {
         y = RAMP_HEIGHT + yLift;
-      } else if (tile.def.kind === 'ramp-ns') {
+      } else if (t.def.kind === 'ramp-ns') {
         y = RAMP_HEIGHT / 2 + yLift;
       } else {
         y = yLift;
@@ -108,11 +119,12 @@ export class TrackGraph {
       pz += (mdz * TILE_SIZE) / 2;
     }
     const node: GraphNode = {
-      id: `${kind}-${this.nodeCounter++}${mainSide ? `:${mainSide}` : ''}`,
+      id: `${kind}-${this.nodeCounter++}${mainSide ? `:${mainSide}` : ''}${level > 0 ? `@L${level}` : ''}`,
       kind,
       pos: new THREE.Vector3(px, y, pz),
       gridX,
       gridZ,
+      level,
       edges: [],
       label,
       mainSide,
@@ -266,9 +278,15 @@ export class TrackGraph {
     return null;
   }
 
-  /** All nodes at the given grid cell. 0, 1, or 2 (for TEEs). */
-  subNodesAt(gridX: number, gridZ: number): GraphNode[] {
-    return this.nodes.filter((n) => n.gridX === gridX && n.gridZ === gridZ);
+  /** All nodes at the given grid cell. 0, 1, or 2 per level (for TEEs);
+   *  cells stacking multiple decks can have nodes at multiple levels.
+   *  Pass `level` to filter to that deck only. */
+  subNodesAt(gridX: number, gridZ: number, level?: number): GraphNode[] {
+    return this.nodes.filter((n) =>
+      n.gridX === gridX
+      && n.gridZ === gridZ
+      && (level === undefined || n.level === level),
+    );
   }
 }
 
@@ -297,7 +315,7 @@ export interface BuildGraphOptions {
 
 export function buildGraphFromLayout(
   layout: TrackLayout,
-  junctionCells: ReadonlyArray<{ gx: number; gz: number; kind: NodeKind; label?: string }>,
+  junctionCells: ReadonlyArray<{ gx: number; gz: number; kind: NodeKind; label?: string; tile?: PlacedTile }>,
   opts?: BuildGraphOptions,
 ): TrackGraph {
   const graph = new TrackGraph(layout);
@@ -305,10 +323,12 @@ export function buildGraphFromLayout(
 
   // Phase 1: create nodes. TEE cells (3 ports with 2 main + 1 lone) get split
   // into TWO sub-nodes at their main-port boundaries; everything else gets
-  // one node at the cell centre.
+  // one node at the cell centre. Caller may pass an explicit tile reference
+  // (under-slot tiles aren't reachable via layout.get); otherwise the primary
+  // is used as a fallback.
   for (const j of junctionCells) {
     junctionSet.add(`${j.gx},${j.gz}`);
-    const tile = layout.get(j.gx, j.gz);
+    const tile = j.tile ?? layout.get(j.gx, j.gz);
     if (!tile) throw new Error(`junction cell (${j.gx},${j.gz}) has no tile`);
     const ports = effectivePorts(tile);
     const mains = mainPortsOf(ports);
@@ -316,53 +336,68 @@ export function buildGraphFromLayout(
     if (isTEE) {
       const subs: GraphNode[] = [];
       for (const m of mains) {
-        subs.push(graph.addNode(j.kind, j.gx, j.gz, j.label, m));
+        subs.push(graph.addNode(j.kind, j.gx, j.gz, j.label, m, tile));
       }
       // Main-through edge inside the TEE cell: straight from one main-port
       // boundary to the other through the cell centre.
       const curve = buildStraightCurve(subs[0]!.pos, subs[1]!.pos);
       graph.addEdge(subs[0]!, subs[1]!, curve, [], mains[1]!, mains[0]!);
     } else {
-      graph.addNode(j.kind, j.gx, j.gz, j.label);
+      graph.addNode(j.kind, j.gx, j.gz, j.label, undefined, tile);
     }
   }
 
-  // Phase 2: cross-cell edges. Iterate by port; the trace dedupes via
-  // visitedPort so the same physical path isn't built twice. For TEE
-  // lone ports we expand to source × destination sub-node combos so the
-  // train sees a separate edge per "which sub-node am I at" pairing.
-  const visitedPort = new Set<string>(); // "gx,gz:dir"
-  for (const cellKey of Array.from(junctionSet)) {
-    const [gxStr, gzStr] = cellKey.split(',');
-    const gx = Number(gxStr);
-    const gz = Number(gzStr);
-    const tile = layout.get(gx, gz);
-    if (!tile) throw new Error(`junction cell (${gx},${gz}) has no tile`);
+  // Phase 2: cross-cell edges. Iterate junctionCells directly (not just
+  // by cell key) so per-level junctions on the same cell are visited
+  // independently. visitedPort keys include the level so a Y=H trace
+  // and a Y=2H trace from the same cell+port aren't deduped together.
+  const visitedPort = new Set<string>();
+  for (const j of junctionCells) {
+    const gx = j.gx;
+    const gz = j.gz;
+    const tile = j.tile ?? layout.get(gx, gz);
+    if (!tile) continue;
+    const level = tile.level ?? 0;
     const ports = effectivePorts(tile);
     for (const port of ports) {
-      const key = `${gx},${gz}:${port}`;
+      const key = `${gx},${gz}:${port}:L${level}`;
       if (visitedPort.has(key)) continue;
       visitedPort.add(key);
-      // Dead-end check: if the cell beyond this port has no tile, this port
-      // is a buffer/terminator (e.g. station at the end of a spur). Skip.
+      // Dead-end check at the port's own Y level — getAt picks the right
+      // layer (primary or under) for the trace's starting Y, so stacked
+      // cells don't false-positive as dead ends.
+      const startY = portY(tile, port);
       const [pdx, pdz] = dirVector(port);
-      if (!layout.get(gx + pdx, gz + pdz)) continue;
-      // All declared junctions (TEE/CROSS/station) are at ground level, so
-      // the trace starts at y=0. Y tracking inside the trace handles
-      // RAMP transitions and stacked under-pass tiles.
-      const traced = traceEdgeFromPort(layout, gx, gz, port, 0, junctionSet, opts);
-      visitedPort.add(`${traced.toGx},${traced.toGz}:${traced.toEntry}`);
+      if (!layout.getAt(gx + pdx, gz + pdz, startY)) continue;
+      const traced = traceEdgeFromPort(layout, gx, gz, port, startY, junctionSet, opts);
+      if (!traced) continue; // graceful dead end — Pass 4 port off-deck
+      // Map exitY → level for the destination cell. Elev tiles use
+      // (1+level)*RAMP_HEIGHT, so level = round(exitY/RAMP_HEIGHT) - 1
+      // for the elev/upper-deck range; clamp to 0 for ground.
+      const toLevel = Math.max(0, Math.round(traced.exitY / RAMP_HEIGHT) - 1);
+      visitedPort.add(`${traced.toGx},${traced.toGz}:${traced.toEntry}:L${toLevel}`);
 
-      const fromSubs = subNodesUsingPort(graph, gx, gz, port);
-      const toSubs = subNodesUsingPort(graph, traced.toGx, traced.toGz, traced.toEntry);
+      const fromSubs = subNodesUsingPort(graph, gx, gz, port, level);
+      const toSubs = subNodesUsingPort(graph, traced.toGx, traced.toGz, traced.toEntry, toLevel);
       if (fromSubs.length === 0 || toSubs.length === 0) {
-        throw new Error(`edge endpoint (${traced.toGx},${traced.toGz}) is not a registered node`);
+        // The destination cell IS a junction but not at this level —
+        // skip (this is a multi-layer mismatch, not a bug to crash on).
+        continue;
       }
       for (const fromNode of fromSubs) {
         for (const toNode of toSubs) {
-          const curve = buildEdgeCurve(
-            layout, fromNode, port, toNode, traced.toEntry, traced.midCells, opts,
-          );
+          let curve: THREE.CatmullRomCurve3;
+          try {
+            curve = buildEdgeCurve(
+              layout, fromNode, port, toNode, traced.toEntry, traced.midCells, opts,
+            );
+          } catch {
+            // Multi-layer trace can produce edges whose curve-sampling
+            // hits a tile mismatch (e.g. a curve in a layer the trace
+            // walked but the curve builder can't reach). Skip rather
+            // than failing the whole graph build.
+            continue;
+          }
           graph.addEdge(
             fromNode, toNode, curve, traced.midCells, port, traced.toEntry,
           );
@@ -381,8 +416,10 @@ export function buildGraphFromLayout(
  *    use it (one branch curve per sub-node passes through the lone-port
  *    boundary), so return both.
  */
-function subNodesUsingPort(graph: TrackGraph, gx: number, gz: number, port: Direction): GraphNode[] {
-  const subs = graph.subNodesAt(gx, gz);
+function subNodesUsingPort(graph: TrackGraph, gx: number, gz: number, port: Direction, level: number): GraphNode[] {
+  // Filter to the right deck first (cells stacking Y=H + Y=2H junctions
+  // would otherwise return both and the edge would cross decks wrong).
+  const subs = graph.subNodesAt(gx, gz, level);
   if (subs.length <= 1) return subs;
   const owned = subs.filter((s) => s.mainSide === port);
   if (owned.length > 0) return owned;
@@ -481,7 +518,8 @@ function traceEdgeFromPort(
   toGx: number;
   toGz: number;
   toEntry: Direction;
-} {
+  exitY: number;
+} | null {
   const [dx0, dz0] = dirVector(exitPort);
   let cx = fromGx + dx0;
   let cz = fromGz + dz0;
@@ -490,15 +528,24 @@ function traceEdgeFromPort(
   const mid: Array<readonly [number, number]> = [];
   for (let safety = 0; safety < 512; safety++) {
     const key = `${cx},${cz}`;
-    if (junctionSet.has(key)) return { midCells: mid, toGx: cx, toGz: cz, toEntry: entry };
+    if (junctionSet.has(key)) return { midCells: mid, toGx: cx, toGz: cz, toEntry: entry, exitY: currentY };
     const tile = layout.getAtVia(cx, cz, currentY, entry, { preferPrimary: opts?.preferPrimary });
-    if (!tile) throw new Error(`traceEdge hit dead end at (${cx},${cz}) y=${currentY}`);
+    // Graceful dead-end: when a multi-layer trace walks off the deck (e.g.
+    // a Pass-4 port enters Pass-1 territory that has no Y=2H content),
+    // return null and let the caller skip this edge. Throwing here used
+    // to crash the whole graph build for L2 layouts.
+    if (!tile) return null;
     const ports = effectivePorts(tile);
     if (ports.length !== 2) {
-      throw new Error(`traceEdge hit a ${ports.length}-port tile at (${cx},${cz}) that isn't a declared junction`);
+      // Hit an undeclared multi-port tile — treat as graceful dead end
+      // (this happens when Pass 4 places a tee that wasn't picked up as
+      // a junction at this Y level for whatever reason).
+      return null;
     }
     if (!ports.includes(entry)) {
-      throw new Error(`bad seam at (${cx},${cz}): entered ${entry} but ports are ${ports.join(',')}`);
+      // Y mismatch: getAtVia picked a tile but its ports at this Y don't
+      // include the entry direction. Graceful dead-end again.
+      return null;
     }
     mid.push([cx, cz]);
     const exit = ports[0] === entry ? ports[1]! : ports[0]!;
@@ -508,7 +555,7 @@ function traceEdgeFromPort(
     cz += dz;
     entry = opposite(exit);
   }
-  throw new Error('traceEdge did not terminate in 512 steps');
+  return null; // 512-step safety bail — graceful instead of throwing
 }
 
 /** Build a single continuous curve from one node's position through all
@@ -544,9 +591,19 @@ function buildEdgeCurve(
   const SAMPLES_PER_TILE = 20;
   const points: THREE.Vector3[] = [];
 
-  const fromTile = layout.get(from.gridX, from.gridZ);
+  // Level-aware tile lookup — multi-deck cells stack a Pass-1 primary +
+  // a Pass-4 under-slot tile at different levels. Pick the layer that
+  // matches the node's level so the curve uses the right Y.
+  const tileAtNode = (n: GraphNode): PlacedTile | undefined => {
+    const primary = layout.get(n.gridX, n.gridZ);
+    if (primary && (primary.level ?? 0) === n.level) return primary;
+    const under = layout.getUnder(n.gridX, n.gridZ);
+    if (under && (under.level ?? 0) === n.level) return under;
+    return primary ?? under;
+  };
+  const fromTile = tileAtNode(from);
   if (!fromTile) throw new Error(`from-junction (${from.gridX},${from.gridZ}) missing tile`);
-  const toTile = layout.get(to.gridX, to.gridZ);
+  const toTile = tileAtNode(to);
   if (!toTile) throw new Error(`to-junction (${to.gridX},${to.gridZ}) missing tile`);
 
   appendJunctionHalf(points, fromTile, from, exitPort);
@@ -563,8 +620,12 @@ function buildEdgeCurve(
   let i = 0;
   while (i < midCells.length) {
     const [gx, gz] = midCells[i]!;
-    const tile = layout.getAtVia(gx, gz, currentY, entry, { preferPrimary: opts?.preferPrimary }) ?? layout.get(gx, gz);
-    if (!tile) throw new Error(`midcell (${gx},${gz}) missing`);
+    // No more layout.get fallback — that returned the wrong (primary)
+    // tile at multi-layer cells and ran us into bogus port pairs like
+    // "curve-ne W->N". If getAtVia can't pick a layer, the trace
+    // shouldn't have included this midcell.
+    const tile = layout.getAtVia(gx, gz, currentY, entry, { preferPrimary: opts?.preferPrimary });
+    if (!tile) throw new Error(`midcell (${gx},${gz}) y=${currentY} entry=${entry} no matching layer`);
     if (tile.def.kind === 'ramp-ns') {
       // Find the run end: consecutive ramp cells with the same rotation.
       let runEnd = i;

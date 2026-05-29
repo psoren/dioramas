@@ -14,6 +14,10 @@ export interface TrackGeneratorOptions {
   size: number;
   rng: () => number;
   maxRetries?: number;
+  /** Highest level WFC may enumerate per tile (default 1 — ground +
+   *  one upper deck). Capped at 3 by the HUD; larger values multiply
+   *  the variant pool and slow WFC propagation significantly. */
+  maxLevel?: number;
 }
 
 export interface TrackGeneratorResult {
